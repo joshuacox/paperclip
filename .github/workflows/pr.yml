@@ -2,8 +2,6 @@ name: PR
 
 on:
   pull_request:
-    branches:
-      - master
 
 permissions:
   actions: read
@@ -12,4 +10,4 @@ permissions:
 
 jobs:
   ci:
-    uses: paperclipai/paperclip/.github/workflows/pr-trusted.yml@c119c4bee6ebb9c81791d7a6994f1be06d7cc22b
+    uses: paperclipai/paperclip/.github/workflows/pr-trusted.yml@f9c32513b2fe62586c60fa0b8863ebd21e5c7603
