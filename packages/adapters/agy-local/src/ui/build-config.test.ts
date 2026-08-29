@@ -75,4 +75,12 @@ describe("buildAgyConfig", () => {
       graceSec: 15,
     });
   });
+
+  it("preserves configured mode", () => {
+    const config = buildAgyConfig({
+      ...makeValues(),
+      mode: "plan",
+    } as any);
+    expect(config.mode).toBe("plan");
+  });
 });

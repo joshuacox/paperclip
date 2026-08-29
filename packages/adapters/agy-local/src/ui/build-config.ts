@@ -14,6 +14,8 @@ export function buildAgyConfig(v: CreateConfigValues): Record<string, unknown> {
   if (v.instructionsFilePath) ac.instructionsFilePath = v.instructionsFilePath;
   ac.model = v.model || DEFAULT_AGY_LOCAL_MODEL;
   if (v.thinkingEffort) ac.effort = v.thinkingEffort;
+  const rawMode = (v as unknown as Record<string, unknown>).mode;
+  if (rawMode) ac.mode = rawMode;
   ac.dangerouslySkipPermissions = v.dangerouslySkipPermissions ?? true;
   ac.timeoutSec = 0;
   ac.graceSec = 15;
