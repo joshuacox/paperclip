@@ -20,12 +20,17 @@ export const sessionCodec: AdapterSessionCodec = {
     const workspaceId = asString(obj.workspaceId, "") || asString(obj.workspace_id, "");
     const repoUrl = asString(obj.repoUrl, "") || asString(obj.repo_url, "");
     const repoRef = asString(obj.repoRef, "") || asString(obj.repo_ref, "");
+    const remoteExecution =
+      typeof obj.remoteExecution === "object" && obj.remoteExecution !== null && !Array.isArray(obj.remoteExecution)
+        ? { ...(obj.remoteExecution as Record<string, unknown>) }
+        : null;
     return {
       sessionId,
       ...(cwd ? { cwd } : {}),
       ...(workspaceId ? { workspaceId } : {}),
       ...(repoUrl ? { repoUrl } : {}),
       ...(repoRef ? { repoRef } : {}),
+      ...(remoteExecution ? { remoteExecution } : {}),
     };
   },
   serialize(params) {
@@ -40,12 +45,19 @@ export const sessionCodec: AdapterSessionCodec = {
     const workspaceId = asString(params.workspaceId, "") || asString(params.workspace_id, "");
     const repoUrl = asString(params.repoUrl, "") || asString(params.repo_url, "");
     const repoRef = asString(params.repoRef, "") || asString(params.repo_ref, "");
+    const remoteExecution =
+      typeof params.remoteExecution === "object" &&
+      params.remoteExecution !== null &&
+      !Array.isArray(params.remoteExecution)
+        ? { ...(params.remoteExecution as Record<string, unknown>) }
+        : null;
     return {
       sessionId,
       ...(cwd ? { cwd } : {}),
       ...(workspaceId ? { workspaceId } : {}),
       ...(repoUrl ? { repoUrl } : {}),
       ...(repoRef ? { repoRef } : {}),
+      ...(remoteExecution ? { remoteExecution } : {}),
     };
   },
   getDisplayId(params) {

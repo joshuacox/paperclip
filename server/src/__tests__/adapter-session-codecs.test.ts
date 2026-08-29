@@ -262,6 +262,24 @@ describe("adapter session codecs", () => {
       cwd: "/tmp/agy",
     });
     expect(agySessionCodec.getDisplayId?.(serialized ?? null)).toBe("agy-session-1");
+
+    const parsedWithRemote = agySessionCodec.deserialize({
+      sessionId: "agy-remote-1",
+      cwd: "/tmp/agy",
+      remoteExecution: {
+        environmentId: "env-1",
+        leaseId: "lease-1",
+      },
+    });
+    expect(parsedWithRemote).toEqual({
+      sessionId: "agy-remote-1",
+      cwd: "/tmp/agy",
+      remoteExecution: {
+        environmentId: "env-1",
+        leaseId: "lease-1",
+      },
+    });
+    expect(agySessionCodec.serialize(parsedWithRemote)).toEqual(parsedWithRemote);
   });
 });
 

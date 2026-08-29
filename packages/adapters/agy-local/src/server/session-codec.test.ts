@@ -55,6 +55,34 @@ describe("agy-local sessionCodec", () => {
     expect(sessionCodec.getDisplayId?.(serialized ?? null)).toBe("conv-456");
   });
 
+  it("preserves remoteExecution in session params", () => {
+    const parsed = sessionCodec.deserialize({
+      sessionId: "conv-remote-1",
+      cwd: "/tmp/workspace",
+      workspaceId: "ws-1",
+      repoUrl: "https://github.com/example/repo.git",
+      repoRef: "main",
+      remoteExecution: {
+        environmentId: "env-1",
+        leaseId: "lease-1",
+      },
+    });
+    expect(parsed).toEqual({
+      sessionId: "conv-remote-1",
+      cwd: "/tmp/workspace",
+      workspaceId: "ws-1",
+      repoUrl: "https://github.com/example/repo.git",
+      repoRef: "main",
+      remoteExecution: {
+        environmentId: "env-1",
+        leaseId: "lease-1",
+      },
+    });
+
+    const serialized = sessionCodec.serialize(parsed);
+    expect(serialized).toEqual(parsed);
+  });
+
   it("returns null for empty or invalid params", () => {
     expect(sessionCodec.deserialize(null)).toBeNull();
     expect(sessionCodec.deserialize({})).toBeNull();
