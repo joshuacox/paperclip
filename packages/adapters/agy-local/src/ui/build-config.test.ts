@@ -83,4 +83,18 @@ describe("buildAgyConfig", () => {
     } as any);
     expect(config.mode).toBe("plan");
   });
+
+  it("preserves agent persona, jsonSchema, sandbox, and addDirs", () => {
+    const config = buildAgyConfig({
+      ...makeValues(),
+      agent: "flutter_a11y_agent",
+      jsonSchema: '{"type":"object"}',
+      sandbox: true,
+      addDirs: "/tmp/ws1, /tmp/ws2",
+    } as any);
+    expect(config.agent).toBe("flutter_a11y_agent");
+    expect(config.jsonSchema).toBe('{"type":"object"}');
+    expect(config.sandbox).toBe(true);
+    expect(config.addDirs).toEqual(["/tmp/ws1", "/tmp/ws2"]);
+  });
 });

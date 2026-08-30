@@ -48,24 +48,30 @@ export function parseAgyStdoutLine(line: string, ts: string): TranscriptEntry[] 
     const stepType = asString(stepUpdate.step_type);
 
     if (stepType === "agent_response") {
+      const entries: TranscriptEntry[] = [];
+      const thinking = asString(stepUpdate.thinking);
+      if (thinking) {
+        entries.push({ kind: "thinking", ts, text: thinking });
+      }
       const textDelta = asString(stepUpdate.text_delta);
       if (textDelta) {
-        return [{ kind: "assistant", ts, text: textDelta }];
+        entries.push({ kind: "assistant", ts, text: textDelta });
       }
-      return [];
+      return entries;
     }
 
     if (stepType === "tool") {
       const toolName = asString(stepUpdate.tool_name, "tool");
       const toolInfo = asRecord(stepUpdate.tool_info) ?? {};
-      const params = asRecord(toolInfo.parameters) ?? {};
+      const toolCallId = asString(stepUpdate.tool_call_id || toolInfo.id || toolInfo.tool_use_id, toolName);
+      const params = asRecord(toolInfo.parameters || toolInfo.input || toolInfo.arguments) ?? {};
       const state = asString(stepUpdate.state);
 
       const callEntry: TranscriptEntry = {
         kind: "tool_call",
         ts,
         name: toolName,
-        toolUseId: toolName,
+        toolUseId: toolCallId,
         input: params,
       };
 
@@ -74,13 +80,16 @@ export function parseAgyStdoutLine(line: string, ts: string): TranscriptEntry[] 
       }
 
       if (state === "DONE") {
-        const output = asString(toolInfo.output, "done");
+        const rawOutput = toolInfo.output;
+        const output = typeof rawOutput === "object" && rawOutput !== null
+          ? JSON.stringify(rawOutput, null, 2)
+          : asString(rawOutput, "done");
         return [
           callEntry,
           {
             kind: "tool_result",
             ts,
-            toolUseId: toolName,
+            toolUseId: toolCallId,
             content: output,
             isError: false,
           },
@@ -95,7 +104,7 @@ export function parseAgyStdoutLine(line: string, ts: string): TranscriptEntry[] 
           {
             kind: "tool_result",
             ts,
-            toolUseId: toolName,
+            toolUseId: toolCallId,
             content: errMsg,
             isError: true,
           },

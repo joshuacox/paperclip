@@ -21,6 +21,12 @@ export function AgyLocalConfigFields({
   mark,
   hideInstructionsFile,
 }: AdapterConfigFieldsProps) {
+  const rawValues = values as unknown as (Record<string, unknown> | undefined);
+  const rawMode = isCreate
+    ? (rawValues?.mode as string | undefined) ?? ""
+    : eff("adapterConfig", "mode", String(config.mode ?? ""));
+  const mode = rawMode === "plan" ? "plan" : "accept-edits";
+
   return (
     <>
       {!hideInstructionsFile && (
@@ -49,6 +55,72 @@ export function AgyLocalConfigFields({
           </div>
         </Field>
       )}
+      <Field
+        label="Execution mode"
+        hint="Plan mode restricts the agent to non-mutating research and planning. Edit mode enables full autonomous edits."
+      >
+        <select
+          className={inputClass}
+          value={mode}
+          onChange={(e) => {
+            const val = e.target.value;
+            isCreate
+              ? set!({ mode: val === "plan" ? "plan" : undefined } as any)
+              : mark("adapterConfig", "mode", val === "plan" ? "plan" : undefined);
+          }}
+        >
+          <option value="accept-edits">Edit Mode (accept-edits) — Full autonomous execution</option>
+          <option value="plan">Plan Mode (plan) — Non-mutating planning & research</option>
+        </select>
+      </Field>
+      <Field
+        label="Agent persona"
+        hint="Optional Antigravity subagent persona name (e.g. research, flutter_a11y_agent). Corresponds to agy --agent <name>."
+      >
+        <DraftInput
+          value={
+            isCreate
+              ? (values as any)?.agent ?? ""
+              : eff(
+                  "adapterConfig",
+                  "agent",
+                  String(config.agent ?? config.agentPersona ?? ""),
+                )
+          }
+          onCommit={(v) =>
+            isCreate
+              ? set!({ agent: v || undefined } as any)
+              : mark("adapterConfig", "agent", v || undefined)
+          }
+          immediate
+          className={inputClass}
+          placeholder="e.g. research, flutter_a11y_agent"
+        />
+      </Field>
+      <Field
+        label="Structured output schema"
+        hint="Optional JSON schema or path to a schema file to enforce structured output for the final result."
+      >
+        <DraftInput
+          value={
+            isCreate
+              ? (values as any)?.jsonSchema ?? ""
+              : eff(
+                  "adapterConfig",
+                  "jsonSchema",
+                  String(config.jsonSchema ?? config.json_schema ?? ""),
+                )
+          }
+          onCommit={(v) =>
+            isCreate
+              ? set!({ jsonSchema: v || undefined } as any)
+              : mark("adapterConfig", "jsonSchema", v || undefined)
+          }
+          immediate
+          className={inputClass}
+          placeholder="/path/to/schema.json or inline JSON schema"
+        />
+      </Field>
       <ToggleField
         label="Skip permissions"
         hint={help.dangerouslySkipPermissions}
@@ -65,6 +137,24 @@ export function AgyLocalConfigFields({
           isCreate
             ? set!({ dangerouslySkipPermissions: v })
             : mark("adapterConfig", "dangerouslySkipPermissions", v)
+        }
+      />
+      <ToggleField
+        label="Sandbox mode"
+        hint="Enable strict Antigravity terminal restrictions and sandboxing."
+        checked={
+          isCreate
+            ? Boolean((values as any)?.sandbox)
+            : eff(
+                "adapterConfig",
+                "sandbox",
+                Boolean(config.sandbox),
+              )
+        }
+        onChange={(v) =>
+          isCreate
+            ? set!({ sandbox: v } as any)
+            : mark("adapterConfig", "sandbox", v ? true : undefined)
         }
       />
     </>

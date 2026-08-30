@@ -117,6 +117,8 @@ export async function testEnvironment(
     const model = asString(config.model, DEFAULT_AGY_LOCAL_MODEL).trim();
     const effort = asString(config.effort, "").trim();
     const mode = asString(config.mode, "").trim();
+    const agentPersona = asString(config.agent ?? config.agentPersona, "").trim();
+    const sandbox = Boolean(config.sandbox);
     const helloProbeTimeoutSec = Math.max(1, asNumber(config.helloProbeTimeoutSec, 60));
     const extraArgs = asStringArray(config.extraArgs);
 
@@ -129,6 +131,8 @@ export async function testEnvironment(
       "text",
       "--dangerously-skip-permissions",
     ];
+    if (sandbox) args.push("--sandbox");
+    if (agentPersona) args.push("--agent", agentPersona);
     if (model) args.push("--model", model);
     if (effort) args.push("--effort", effort);
     if (mode) args.push("--mode", mode);

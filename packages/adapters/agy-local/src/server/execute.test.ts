@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AdapterExecutionContext } from "@paperclipai/adapter-utils";
+import type { AdapterExecutionContext, AdapterInvocationMeta } from "@paperclipai/adapter-utils";
 import { execute } from "./execute.js";
 
 vi.mock("@paperclipai/adapter-utils/server-utils", async () => {
@@ -23,7 +23,7 @@ vi.mock("@paperclipai/adapter-utils/server-utils", async () => {
 
 describe("agy-local execute", () => {
   it("passes configured mode, model, and effort to agy CLI arguments", async () => {
-    let capturedMeta: Record<string, unknown> | null = null;
+    let capturedMeta: AdapterInvocationMeta | null = null;
 
     const ctx: AdapterExecutionContext = {
       runId: "run-1",
@@ -42,7 +42,10 @@ describe("agy-local execute", () => {
       runtime: {
         sessionId: null,
         sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
       },
+      config: {},
       context: {
         paperclipWorkspace: {
           cwd: "/tmp/workspace",
@@ -59,7 +62,7 @@ describe("agy-local execute", () => {
     expect(result.sessionId).toBe("conv-fresh-1");
 
     expect(capturedMeta).not.toBeNull();
-    const commandArgs = (capturedMeta as any).commandArgs as string[];
+    const commandArgs = capturedMeta!.commandArgs as string[];
     expect(commandArgs).toContain("--mode");
     expect(commandArgs[commandArgs.indexOf("--mode") + 1]).toBe("plan");
     expect(commandArgs).toContain("--model");
@@ -70,7 +73,7 @@ describe("agy-local execute", () => {
   });
 
   it("passes --conversation when resuming a previous session", async () => {
-    let capturedMeta: Record<string, unknown> | null = null;
+    let capturedMeta: AdapterInvocationMeta | null = null;
 
     const ctx: AdapterExecutionContext = {
       runId: "run-2",
@@ -89,7 +92,10 @@ describe("agy-local execute", () => {
           sessionId: "conv-prior-1",
           cwd: "/tmp/workspace",
         },
+        sessionDisplayId: "conv-prior-1",
+        taskKey: null,
       },
+      config: {},
       context: {
         paperclipWorkspace: {
           cwd: "/tmp/workspace",
@@ -105,8 +111,72 @@ describe("agy-local execute", () => {
     expect(result.exitCode).toBe(0);
 
     expect(capturedMeta).not.toBeNull();
-    const commandArgs = (capturedMeta as any).commandArgs as string[];
+    const commandArgs = capturedMeta!.commandArgs as string[];
     expect(commandArgs).toContain("--conversation");
     expect(commandArgs[commandArgs.indexOf("--conversation") + 1]).toBe("conv-prior-1");
+  });
+
+  it("passes multi-workspace --add-dir, --agent, --sandbox, and --json-schema", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-3",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Test Agent",
+        adapterType: "agy_local",
+        adapterConfig: {
+          agent: "flutter_a11y_agent",
+          sandbox: true,
+          jsonSchema: '{"type":"object"}',
+          addDirs: ["/tmp/extra-repo"],
+          dangerouslySkipPermissions: true,
+        },
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: "/tmp/main-workspace",
+        },
+        paperclipWorkspaces: [
+          { cwd: "/tmp/main-workspace" },
+          { cwd: "/tmp/second-workspace" },
+        ],
+      },
+      onLog: async () => {},
+      onMeta: async (meta) => {
+        capturedMeta = meta;
+      },
+    };
+
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+
+    expect(capturedMeta).not.toBeNull();
+    const commandArgs = capturedMeta!.commandArgs as string[];
+
+    // Verify --add-dir contains main-workspace, second-workspace, and extra-repo
+    const addDirIndices: number[] = [];
+    commandArgs.forEach((arg, idx) => {
+      if (arg === "--add-dir") addDirIndices.push(idx + 1);
+    });
+    const addDirValues = addDirIndices.map((i) => commandArgs[i]);
+    expect(addDirValues).toContain("/tmp/main-workspace");
+    expect(addDirValues).toContain("/tmp/second-workspace");
+    expect(addDirValues).toContain("/tmp/extra-repo");
+
+    // Verify agent, sandbox, jsonSchema
+    expect(commandArgs).toContain("--agent");
+    expect(commandArgs[commandArgs.indexOf("--agent") + 1]).toBe("flutter_a11y_agent");
+    expect(commandArgs).toContain("--sandbox");
+    expect(commandArgs).toContain("--json-schema");
+    expect(commandArgs[commandArgs.indexOf("--json-schema") + 1]).toBe('{"type":"object"}');
   });
 });

@@ -9,13 +9,18 @@ function parseCommaArgs(value: string): string[] {
 }
 
 export function buildAgyConfig(v: CreateConfigValues): Record<string, unknown> {
+  const raw = v as unknown as Record<string, unknown>;
   const ac: Record<string, unknown> = {};
   if (v.cwd) ac.cwd = v.cwd;
   if (v.instructionsFilePath) ac.instructionsFilePath = v.instructionsFilePath;
   ac.model = v.model || DEFAULT_AGY_LOCAL_MODEL;
   if (v.thinkingEffort) ac.effort = v.thinkingEffort;
-  const rawMode = (v as unknown as Record<string, unknown>).mode;
-  if (rawMode) ac.mode = rawMode;
+  if (raw.mode) ac.mode = raw.mode;
+  if (raw.agent) ac.agent = raw.agent;
+  if (raw.agentPersona) ac.agent = raw.agentPersona;
+  if (raw.jsonSchema) ac.jsonSchema = raw.jsonSchema;
+  if (typeof raw.sandbox === "boolean") ac.sandbox = raw.sandbox;
+  if (raw.addDirs) ac.addDirs = Array.isArray(raw.addDirs) ? raw.addDirs : parseCommaArgs(String(raw.addDirs));
   ac.dangerouslySkipPermissions = v.dangerouslySkipPermissions ?? true;
   ac.timeoutSec = 0;
   ac.graceSec = 15;

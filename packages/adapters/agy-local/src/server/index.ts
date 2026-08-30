@@ -5,6 +5,7 @@ export { execute } from "./execute.js";
 export { testEnvironment } from "./test.js";
 export { listAgySkills as listSkills, syncAgySkills as syncSkills } from "./skills.js";
 export { listAgyModels } from "./models.js";
+export { listAgyAgents as listAgents, listAgyAgents, parseAgyAgentsOutput } from "./agents.js";
 export { parseAgyJsonl, isAgyUnknownSessionError } from "./parse.js";
 
 export const sessionCodec: AdapterSessionCodec = {

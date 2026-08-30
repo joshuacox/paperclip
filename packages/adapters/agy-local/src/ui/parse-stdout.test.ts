@@ -128,6 +128,65 @@ describe("parseAgyStdoutLine", () => {
     ]);
   });
 
+  it("handles assistant response with thinking and text delta", () => {
+    const line = JSON.stringify({
+      event: "step_update",
+      step_update: {
+        step_index: 1,
+        step_type: "agent_response",
+        thinking: "Let me plan the next steps...",
+        text_delta: "Here is the response.",
+      },
+    });
+    const entries = parseAgyStdoutLine(line, ts);
+    expect(entries).toEqual([
+      {
+        kind: "thinking",
+        ts,
+        text: "Let me plan the next steps...",
+      },
+      {
+        kind: "assistant",
+        ts,
+        text: "Here is the response.",
+      },
+    ]);
+  });
+
+  it("handles tool output with JSON object payload", () => {
+    const doneLine = JSON.stringify({
+      event: "step_update",
+      step_update: {
+        step_index: 3,
+        step_type: "tool",
+        tool_name: "custom_tool",
+        tool_call_id: "call_abc123",
+        state: "DONE",
+        tool_info: {
+          parameters: { query: "search terms" },
+          output: { count: 2, items: ["item1", "item2"] },
+        },
+      },
+    });
+    const entries = parseAgyStdoutLine(doneLine, ts);
+    expect(entries).toEqual([
+      {
+        kind: "tool_call",
+        ts,
+        name: "custom_tool",
+        toolUseId: "call_abc123",
+        input: { query: "search terms" },
+      },
+      {
+        kind: "tool_result",
+        ts,
+        toolUseId: "call_abc123",
+        content: JSON.stringify({ count: 2, items: ["item1", "item2"] }, null, 2),
+        isError: false,
+      },
+    ]);
+  });
+
   it("falls back to stdout entry for non-json lines", () => {
     const line = "Plain text output from process";
     const entries = parseAgyStdoutLine(line, ts);

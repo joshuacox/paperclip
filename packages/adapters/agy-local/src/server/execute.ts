@@ -52,12 +52,12 @@ function firstNonEmptyLine(text: string): string {
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { runId, agent, runtime, config: rawConfig, context, onLog, onMeta, onSpawn, authToken } = ctx;
-  const config = parseObject(rawConfig ?? agent?.adapterConfig);
   const executionTarget = readAdapterExecutionTarget({
     executionTarget: ctx.executionTarget,
     legacyRemoteExecution: ctx.executionTransport?.remoteExecution,
   });
   const executionTargetIsRemote = adapterExecutionTargetIsRemote(executionTarget);
+  const config = parseObject({ ...parseObject(agent?.adapterConfig), ...parseObject(rawConfig) });
 
   const promptTemplate = asString(
     config.promptTemplate,
@@ -67,7 +67,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const model = asString(config.model, DEFAULT_AGY_LOCAL_MODEL).trim();
   const effort = asString(config.effort, "").trim();
   const mode = asString(config.mode, "").trim();
+  const agentPersona = asString(config.agent ?? config.agentPersona, "").trim();
+  const jsonSchema = asString(config.jsonSchema ?? config.json_schema, "").trim();
+  const sandbox = Boolean(config.sandbox);
   const dangerouslySkipPermissions = config.dangerouslySkipPermissions !== false;
+  const additionalDirs = Array.isArray(config.addDirs)
+    ? config.addDirs.map((d) => asString(d, "").trim()).filter(Boolean)
+    : [];
 
   const workspaceContext = parseObject(context.paperclipWorkspace);
   const workspaceCwd = asString(workspaceContext.cwd, "");
@@ -288,11 +294,38 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       "--add-dir",
       cwd,
     ];
+
+    // Multi-workspace monorepo injection: add all distinct workspace and configured directories
+    const addedDirs = new Set<string>([path.resolve(cwd)]);
+    for (const hint of workspaceHints) {
+      const hintCwd = asString(hint.cwd, "").trim();
+      if (hintCwd) {
+        const resolved = path.resolve(hintCwd);
+        if (!addedDirs.has(resolved)) {
+          addedDirs.add(resolved);
+          args.push("--add-dir", hintCwd);
+        }
+      }
+    }
+    for (const addDir of additionalDirs) {
+      const resolved = path.resolve(addDir);
+      if (!addedDirs.has(resolved)) {
+        addedDirs.add(resolved);
+        args.push("--add-dir", addDir);
+      }
+    }
+
     if (dangerouslySkipPermissions) {
       args.push("--dangerously-skip-permissions");
     }
+    if (sandbox) {
+      args.push("--sandbox");
+    }
     if (resumeSessionId) {
       args.push("--conversation", resumeSessionId);
+    }
+    if (agentPersona) {
+      args.push("--agent", agentPersona);
     }
     if (model) {
       args.push("--model", model);
@@ -302,6 +335,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     }
     if (mode) {
       args.push("--mode", mode);
+    }
+    if (jsonSchema) {
+      args.push("--json-schema", jsonSchema);
     }
     if (extraArgs.length > 0) {
       args.push(...extraArgs);
