@@ -97,4 +97,9 @@ describe("buildAgyConfig", () => {
     expect(config.sandbox).toBe(true);
     expect(config.addDirs).toEqual(["/tmp/ws1", "/tmp/ws2"]);
   });
+
+  it("preserves dangerouslySkipPermissions: false", () => {
+    const config = buildAgyConfig(makeValues({ dangerouslySkipPermissions: false }));
+    expect(config.dangerouslySkipPermissions).toBe(false);
+  });
 });

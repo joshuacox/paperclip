@@ -21,7 +21,7 @@ export function buildAgyConfig(v: CreateConfigValues): Record<string, unknown> {
   if (raw.jsonSchema) ac.jsonSchema = raw.jsonSchema;
   if (typeof raw.sandbox === "boolean") ac.sandbox = raw.sandbox;
   if (raw.addDirs) ac.addDirs = Array.isArray(raw.addDirs) ? raw.addDirs : parseCommaArgs(String(raw.addDirs));
-  ac.dangerouslySkipPermissions = v.dangerouslySkipPermissions ?? true;
+  ac.dangerouslySkipPermissions = v.dangerouslySkipPermissions;
   ac.timeoutSec = 0;
   ac.graceSec = 15;
   const env = buildAdapterEnvConfig(v.envBindings, v.envVars);

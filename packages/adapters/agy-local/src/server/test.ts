@@ -116,9 +116,10 @@ export async function testEnvironment(
   if (canRunProbe) {
     const model = asString(config.model, DEFAULT_AGY_LOCAL_MODEL).trim();
     const effort = asString(config.effort, "").trim();
-    const mode = asString(config.mode, "").trim();
+    const mode = asString(config.mode, "plan").trim();
     const agentPersona = asString(config.agent ?? config.agentPersona, "").trim();
     const sandbox = Boolean(config.sandbox);
+    const dangerouslySkipPermissions = asBoolean(config.dangerouslySkipPermissions, false);
     const helloProbeTimeoutSec = Math.max(1, asNumber(config.helloProbeTimeoutSec, 60));
     const extraArgs = asStringArray(config.extraArgs);
 
@@ -129,13 +130,13 @@ export async function testEnvironment(
       "stream-json",
       "--input-format",
       "text",
-      "--dangerously-skip-permissions",
     ];
     if (sandbox) args.push("--sandbox");
     if (agentPersona) args.push("--agent", agentPersona);
     if (model) args.push("--model", model);
     if (effort) args.push("--effort", effort);
     if (mode) args.push("--mode", mode);
+    if (dangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
     if (extraArgs.length > 0) args.push(...extraArgs);
 
     const probe = await runAdapterExecutionTargetProcess(
