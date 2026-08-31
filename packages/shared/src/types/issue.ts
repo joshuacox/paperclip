@@ -970,6 +970,38 @@ export interface IssueComment {
   updatedAt: Date;
 }
 
+export type IssueQueuedCommentProtocol = "paperclip_runner_v1" | "legacy";
+export type IssueQueuedCommentQueueState = "deferred" | "queued";
+export type IssueQueuedCommentSteeringDisposition =
+  | "available"
+  | "unsupported"
+  | "temporarily_unavailable";
+
+export interface IssueQueuedCommentEntry {
+  comment: IssueComment;
+  position: number;
+  canEdit: boolean;
+  canDiscard: boolean;
+}
+
+/**
+ * Authoritative projection of comments waiting to be delivered to an issue
+ * run. `queueId` remains stable while a deferred wake is promoted to a queued
+ * run. `revision` is opaque and must be echoed by queue mutations so a stale
+ * browser cannot overwrite newer queue content or ordering.
+ */
+export interface IssueQueuedCommentQueue {
+  issueId: string;
+  queueId: string | null;
+  state: IssueQueuedCommentQueueState | null;
+  /** The currently-running turn that can accept same-turn steering. */
+  targetRunId: string | null;
+  revision: string;
+  protocol: IssueQueuedCommentProtocol;
+  steeringDisposition: IssueQueuedCommentSteeringDisposition;
+  entries: IssueQueuedCommentEntry[];
+}
+
 interface IssueCommentMetadataRowBase {
   type: IssueCommentMetadataRowType;
   label?: string | null;
@@ -1082,7 +1114,7 @@ export interface SuggestTasksResultCreatedTask {
 
 export interface SuggestTasksResult {
   version: 1;
-  outcome?: "withdrawn" | "issue_closed" | "addressee_deleted";
+  outcome?: "skipped" | "withdrawn" | "issue_closed" | "addressee_deleted";
   reason?: string | null;
   createdTasks?: SuggestTasksResultCreatedTask[];
   skippedClientKeys?: string[];
@@ -1109,6 +1141,8 @@ export interface AskUserQuestionsQuestion {
   helpText?: string | null;
   selectionMode: "single" | "multi";
   required?: boolean;
+  /** False suppresses the legacy free-form fallback for closed select sets. */
+  allowOther?: boolean;
   options: AskUserQuestionsQuestionOption[];
 }
 
@@ -1176,7 +1210,7 @@ export interface AskUserQuestionsAnswer {
 
 export interface AskUserQuestionsResult {
   version: 1;
-  outcome?: "withdrawn" | "issue_closed" | "addressee_deleted";
+  outcome?: "skipped" | "withdrawn" | "issue_closed" | "addressee_deleted";
   reason?: string | null;
   answers: AskUserQuestionsAnswer[];
   cancelled?: true;
@@ -1268,6 +1302,49 @@ export interface RequestConfirmationSecretProposalResult {
   updatedAt: string;
 }
 
+/**
+ * Presentation metadata for a connection-authorization confirmation
+ * (PAP-17835). The interaction kind and the server-addressed audience are
+ * unchanged; this block only lets the card render "Connect your Gmail to
+ * continue" and name the agent that is waiting, instead of parsing a magic
+ * title string to work out what the card is about.
+ */
+export interface RequestConfirmationConnectionAuthorizationPayload {
+  version: 1;
+  /** Provider label for the copy, e.g. "Gmail". Never a secret name or ref. */
+  providerName: string;
+  /** The connection's display name, when it differs from the provider. */
+  connectionName?: string | null;
+  /** The agent whose work is blocked, for "<Agent> needs your <Provider> identity". */
+  requestingAgentName?: string | null;
+}
+
+export type ConnectionIntentPhase = "requested" | "authorizing" | "needs_retry";
+
+/**
+ * Server-authored request for a responsible user to connect a first-party app.
+ * It intentionally contains presentation-safe identifiers only; credentials and
+ * authorization URLs are returned solely from addressed board endpoints.
+ */
+export interface ConnectionIntentPayload {
+  version: 1;
+  serviceSlug: string;
+  serviceName: string;
+  serviceLogoUrl?: string | null;
+  serviceDarkLogoUrl?: string | null;
+  requestingAgentId: string;
+  requestingAgentName: string;
+  phase: ConnectionIntentPhase;
+}
+
+export interface ConnectionIntentResult {
+  version: 1;
+  outcome: "connected" | "declined" | "superseded" | "expired";
+  connectionId?: string | null;
+  reason?: string | null;
+  supersededByInteractionId?: string | null;
+}
+
 export interface RequestConfirmationPayload {
   version: 1;
   prompt: string;
@@ -1282,6 +1359,7 @@ export interface RequestConfirmationPayload {
   target?: RequestConfirmationTarget | null;
   toolAction?: RequestConfirmationToolActionPayload;
   secretProposal?: RequestConfirmationSecretProposalPayload;
+  connectionAuthorization?: RequestConfirmationConnectionAuthorizationPayload;
 }
 
 export interface RequestCheckboxConfirmationOption {
@@ -1340,6 +1418,7 @@ export interface RequestConfirmationResult {
     | "superseded_by_comment"
     | "superseded_by_newer_request"
     | "stale_target"
+    | "skipped"
     | "withdrawn"
     | "issue_closed"
     | "addressee_deleted";
@@ -1378,7 +1457,7 @@ export interface RequestItemVerdictsResultItem {
 
 export interface RequestItemVerdictsResult {
   version: 1;
-  outcome: "resolved" | "superseded_by_comment" | "stale_target" | "cancelled" | "withdrawn" | "issue_closed" | "addressee_deleted";
+  outcome: "resolved" | "superseded_by_comment" | "stale_target" | "cancelled" | "skipped" | "withdrawn" | "issue_closed" | "addressee_deleted";
   reason?: string | null;
   complete: boolean;
   items: RequestItemVerdictsResultItem[];
@@ -1395,6 +1474,7 @@ export interface IssueThreadInteractionBase extends IssueThreadInteractionActorF
   sourceCommentId?: string | null;
   sourceRunId?: string | null;
   addresseeAgentId?: string | null;
+  addresseeUserId?: string | null;
   title?: string | null;
   summary?: string | null;
   status: IssueThreadInteractionStatus;
@@ -1444,26 +1524,35 @@ export interface RequestItemVerdictsInteraction extends IssueThreadInteractionBa
   result?: RequestItemVerdictsResult | null;
 }
 
+export interface ConnectionIntentInteraction extends IssueThreadInteractionBase {
+  kind: "connection_intent";
+  payload: ConnectionIntentPayload;
+  result?: ConnectionIntentResult | null;
+}
+
 export type IssueThreadInteraction =
   | SuggestTasksInteraction
   | AskUserQuestionsInteraction
   | RequestConfirmationInteraction
   | RequestCheckboxConfirmationInteraction
-  | RequestItemVerdictsInteraction;
+  | RequestItemVerdictsInteraction
+  | ConnectionIntentInteraction;
 
 export type IssueThreadInteractionPayload =
   | SuggestTasksPayload
   | AskUserQuestionsPayload
   | RequestConfirmationPayload
   | RequestCheckboxConfirmationPayload
-  | RequestItemVerdictsPayload;
+  | RequestItemVerdictsPayload
+  | ConnectionIntentPayload;
 
 export type IssueThreadInteractionResult =
   | SuggestTasksResult
   | AskUserQuestionsResult
   | RequestConfirmationResult
   | RequestCheckboxConfirmationResult
-  | RequestItemVerdictsResult;
+  | RequestItemVerdictsResult
+  | ConnectionIntentResult;
 
 export interface IssueAttachment {
   id: string;
