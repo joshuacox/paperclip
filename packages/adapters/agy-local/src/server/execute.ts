@@ -67,7 +67,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const command = asString(config.command, "agy");
   const model = asString(config.model, DEFAULT_AGY_LOCAL_MODEL).trim();
   const effort = asString(config.effort, "").trim();
-  const mode = asString(config.mode, "").trim();
+  const mode = asString(config.mode, "plan").trim();
   const agentPersona = asString(config.agent ?? config.agentPersona, "").trim();
   const jsonSchema = asString(config.jsonSchema ?? config.json_schema, "").trim();
   const sandbox = Boolean(config.sandbox);
