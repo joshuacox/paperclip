@@ -257,4 +257,42 @@ describe("agy-local execute", () => {
     const commandArgs = capturedMeta!.commandArgs as string[];
     expect(commandArgs).not.toContain("--dangerously-skip-permissions");
   });
+
+  it("does not pass --mode when mode is omitted (defaults to edit mode)", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-default-mode",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Test Agent",
+        adapterType: "agy_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: "/tmp/workspace",
+        },
+      },
+      onLog: async () => {},
+      onMeta: async (meta) => {
+        capturedMeta = meta;
+      },
+    };
+
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+
+    expect(capturedMeta).not.toBeNull();
+    const commandArgs = capturedMeta!.commandArgs as string[];
+    expect(commandArgs).not.toContain("--mode");
+  });
 });
