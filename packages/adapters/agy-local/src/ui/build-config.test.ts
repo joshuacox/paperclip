@@ -11,7 +11,7 @@ function makeValues(overrides: Partial<CreateConfigValues> = {}): CreateConfigVa
     model: "gemini-3.7-flash-high",
     thinkingEffort: "",
     chrome: false,
-    dangerouslySkipPermissions: true,
+    dangerouslySkipPermissions: false,
     search: false,
     fastMode: false,
     dangerouslyBypassSandbox: false,
@@ -70,7 +70,7 @@ describe("buildAgyConfig", () => {
     const config = buildAgyConfig(makeValues({ model: "" }));
     expect(config).toEqual({
       model: "gemini-3.7-flash-high",
-      dangerouslySkipPermissions: true,
+      dangerouslySkipPermissions: false,
       timeoutSec: 0,
       graceSec: 15,
     });
@@ -96,6 +96,11 @@ describe("buildAgyConfig", () => {
     expect(config.jsonSchema).toBe('{"type":"object"}');
     expect(config.sandbox).toBe(true);
     expect(config.addDirs).toEqual(["/tmp/ws1", "/tmp/ws2"]);
+  });
+
+  it("preserves dangerouslySkipPermissions: true", () => {
+    const config = buildAgyConfig(makeValues({ dangerouslySkipPermissions: true }));
+    expect(config.dangerouslySkipPermissions).toBe(true);
   });
 
   it("preserves dangerouslySkipPermissions: false", () => {

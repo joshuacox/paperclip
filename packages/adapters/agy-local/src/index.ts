@@ -56,7 +56,7 @@ Core fields:
 - model (string, optional): model ID. Defaults to "gemini-3.7-flash-high"
 - effort (string, optional): reasoning effort (low | medium | high)
 - mode (string, optional): execution mode (accept-edits | plan)
-- dangerouslySkipPermissions (boolean, optional, default true): allow non-interactive tool calls without prompting
+- dangerouslySkipPermissions (boolean, optional, default false): allow non-interactive tool calls without prompting
 - command (string, optional): executable command name or path (defaults to "agy")
 - extraArgs (string[], optional): additional CLI args passed to agy
 - env (object, optional): KEY=VALUE environment variables

@@ -71,7 +71,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const agentPersona = asString(config.agent ?? config.agentPersona, "").trim();
   const jsonSchema = asString(config.jsonSchema ?? config.json_schema, "").trim();
   const sandbox = Boolean(config.sandbox);
-  const dangerouslySkipPermissions = asBoolean(config.dangerouslySkipPermissions, true);
+  const dangerouslySkipPermissions = asBoolean(config.dangerouslySkipPermissions, false);
   const additionalDirs = Array.isArray(config.addDirs)
     ? config.addDirs.map((d) => asString(d, "").trim()).filter(Boolean)
     : [];
