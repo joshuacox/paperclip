@@ -69,7 +69,7 @@ describe("buildAgyConfig", () => {
   it("applies defaults when values are missing", () => {
     const config = buildAgyConfig(makeValues({ model: "" }));
     expect(config).toEqual({
-      model: "gemini-3.7-flash-high",
+      model: "gemini-3.8-flash-high",
       dangerouslySkipPermissions: false,
       timeoutSec: 0,
       graceSec: 15,
@@ -106,5 +106,34 @@ describe("buildAgyConfig", () => {
   it("preserves dangerouslySkipPermissions: false", () => {
     const config = buildAgyConfig(makeValues({ dangerouslySkipPermissions: false }));
     expect(config.dangerouslySkipPermissions).toBe(false);
+  });
+
+  it("builds git_worktree workspaceStrategy when configured", () => {
+    const config = buildAgyConfig(
+      makeValues({
+        workspaceStrategyType: "git_worktree",
+        workspaceBaseRef: "main",
+        workspaceBranchTemplate: "task/{{issue.key}}",
+        worktreeParentDir: "/tmp/worktrees",
+      }),
+    );
+    expect(config.workspaceStrategy).toEqual({
+      type: "git_worktree",
+      baseRef: "main",
+      branchTemplate: "task/{{issue.key}}",
+      worktreeParentDir: "/tmp/worktrees",
+    });
+  });
+
+  it("preserves project, printTimeout, and disableSlashCommands", () => {
+    const config = buildAgyConfig({
+      ...makeValues(),
+      project: "my-custom-project",
+      printTimeout: "30m",
+      disableSlashCommands: true,
+    } as any);
+    expect(config.project).toBe("my-custom-project");
+    expect(config.printTimeout).toBe("30m");
+    expect(config.disableSlashCommands).toBe(true);
   });
 });

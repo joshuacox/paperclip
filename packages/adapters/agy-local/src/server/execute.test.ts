@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AdapterExecutionContext, AdapterInvocationMeta } from "@paperclipai/adapter-utils";
-import { execute } from "./execute.js";
+import { discoverAgySessionArtifacts, execute } from "./execute.js";
 
 vi.mock("@paperclipai/adapter-utils/server-utils", async () => {
   const actual = await vi.importActual<typeof import("@paperclipai/adapter-utils/server-utils")>(
@@ -294,5 +294,99 @@ describe("agy-local execute", () => {
     expect(capturedMeta).not.toBeNull();
     const commandArgs = capturedMeta!.commandArgs as string[];
     expect(commandArgs).not.toContain("--mode");
+  });
+
+  it("passes --project, --print-timeout, and --disable-slash-commands when configured", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-custom-flags",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Test Agent",
+        adapterType: "agy_local",
+        adapterConfig: {
+          project: "paperclip-core",
+          printTimeout: "45m",
+          disableSlashCommands: true,
+        },
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: "/tmp/workspace",
+        },
+      },
+      onLog: async () => {},
+      onMeta: async (meta) => {
+        capturedMeta = meta;
+      },
+    };
+
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+
+    expect(capturedMeta).not.toBeNull();
+    const commandArgs = capturedMeta!.commandArgs as string[];
+    expect(commandArgs).toContain("--project");
+    expect(commandArgs[commandArgs.indexOf("--project") + 1]).toBe("paperclip-core");
+    expect(commandArgs).toContain("--print-timeout");
+    expect(commandArgs[commandArgs.indexOf("--print-timeout") + 1]).toBe("45m");
+    expect(commandArgs).toContain("--disable-slash-commands");
+  });
+
+  it("defaults --print-timeout to 24h when timeoutSec is 0 or aligns to timeoutSec", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-timeout-align",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Test Agent",
+        adapterType: "agy_local",
+        adapterConfig: {
+          timeoutSec: 360,
+        },
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: "/tmp/workspace",
+        },
+      },
+      onLog: async () => {},
+      onMeta: async (meta) => {
+        capturedMeta = meta;
+      },
+    };
+
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+
+    expect(capturedMeta).not.toBeNull();
+    const commandArgs = capturedMeta!.commandArgs as string[];
+    expect(commandArgs).toContain("--print-timeout");
+    expect(commandArgs[commandArgs.indexOf("--print-timeout") + 1]).toBe("360s");
+  });
+});
+
+describe("discoverAgySessionArtifacts", () => {
+  it("returns empty array for invalid or missing sessionId", async () => {
+    expect(await discoverAgySessionArtifacts("")).toEqual([]);
+    expect(await discoverAgySessionArtifacts("non-existent-conv-id-99999")).toEqual([]);
   });
 });

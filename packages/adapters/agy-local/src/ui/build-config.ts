@@ -21,9 +21,20 @@ export function buildAgyConfig(v: CreateConfigValues): Record<string, unknown> {
   if (raw.jsonSchema) ac.jsonSchema = raw.jsonSchema;
   if (typeof raw.sandbox === "boolean") ac.sandbox = raw.sandbox;
   if (raw.addDirs) ac.addDirs = Array.isArray(raw.addDirs) ? raw.addDirs : parseCommaArgs(String(raw.addDirs));
+  if (raw.project) ac.project = String(raw.project).trim();
+  if (raw.printTimeout) ac.printTimeout = String(raw.printTimeout).trim();
+  if (typeof raw.disableSlashCommands === "boolean") ac.disableSlashCommands = raw.disableSlashCommands;
   ac.dangerouslySkipPermissions = Boolean(v.dangerouslySkipPermissions);
   ac.timeoutSec = 0;
   ac.graceSec = 15;
+  if (v.workspaceStrategyType === "git_worktree") {
+    ac.workspaceStrategy = {
+      type: "git_worktree",
+      ...(v.workspaceBaseRef ? { baseRef: v.workspaceBaseRef } : {}),
+      ...(v.workspaceBranchTemplate ? { branchTemplate: v.workspaceBranchTemplate } : {}),
+      ...(v.worktreeParentDir ? { worktreeParentDir: v.worktreeParentDir } : {}),
+    };
+  }
   const env = buildAdapterEnvConfig(v.envBindings, v.envVars);
   if (Object.keys(env).length > 0) ac.env = env;
   if (v.command) ac.command = v.command;

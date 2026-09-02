@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "@paperclipai/adapter-utils";
@@ -51,6 +52,40 @@ function firstNonEmptyLine(text: string): string {
   );
 }
 
+export async function discoverAgySessionArtifacts(sessionId: string): Promise<string[]> {
+  if (!sessionId || typeof sessionId !== "string") return [];
+  const homedir = os.homedir();
+  const candidateDirs = [
+    path.join(homedir, ".gemini", "antigravity-cli", "brain", sessionId),
+    path.join(homedir, ".gemini", "antigravity", "brain", sessionId),
+  ];
+
+  const artifacts: string[] = [];
+
+  async function walk(currentDir: string): Promise<void> {
+    try {
+      const entries = await fs.readdir(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name.startsWith(".")) continue;
+        const fullPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(fullPath);
+        } else if (entry.isFile()) {
+          artifacts.push(fullPath);
+        }
+      }
+    } catch {
+      // directory missing or inaccessible
+    }
+  }
+
+  for (const dir of candidateDirs) {
+    await walk(dir);
+  }
+
+  return [...new Set(artifacts)];
+}
+
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { runId, agent, runtime, config: rawConfig, context, onLog, onMeta, onSpawn, authToken } = ctx;
   const executionTarget = readAdapterExecutionTarget({
@@ -75,6 +110,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const additionalDirs = Array.isArray(config.addDirs)
     ? config.addDirs.map((d) => asString(d, "").trim()).filter(Boolean)
     : [];
+  const project =
+    asString(config.project, "").trim() ||
+    asString((context.project as Record<string, unknown> | undefined)?.slug, "").trim() ||
+    asString((context.project as Record<string, unknown> | undefined)?.name, "").trim();
+  const printTimeoutConfig = asString(config.printTimeout, "").trim();
+  const disableSlashCommands = Boolean(config.disableSlashCommands);
 
   const workspaceContext = parseObject(context.paperclipWorkspace);
   const workspaceCwd = asString(workspaceContext.cwd, "");
@@ -340,6 +381,16 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (jsonSchema) {
       args.push("--json-schema", jsonSchema);
     }
+    if (project) {
+      args.push("--project", project);
+    }
+    const effectivePrintTimeout = printTimeoutConfig || (timeoutSec > 0 ? `${timeoutSec}s` : "24h");
+    if (effectivePrintTimeout) {
+      args.push("--print-timeout", effectivePrintTimeout);
+    }
+    if (disableSlashCommands) {
+      args.push("--disable-slash-commands");
+    }
     if (extraArgs.length > 0) {
       args.push(...extraArgs);
     }
@@ -472,6 +523,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     !initial.proc.timedOut &&
     ((initial.proc.exitCode ?? 0) !== 0 || Boolean(initial.parsed.errorMessage) || initial.parsed.isError);
 
+  let finalResult: AdapterExecutionResult;
   if (
     sessionId &&
     initialFailed &&
@@ -485,8 +537,24 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       `[paperclip] Antigravity conversation "${sessionId}" is unavailable; retrying with a fresh session.\n`,
     );
     const retry = await runAttempt(null);
-    return toResult(retry, true);
+    finalResult = toResult(retry, true);
+  } else {
+    finalResult = toResult(initial);
   }
 
-  return toResult(initial);
+  if (finalResult.sessionId && !executionTargetIsRemote) {
+    const artifacts = await discoverAgySessionArtifacts(finalResult.sessionId);
+    if (artifacts.length > 0) {
+      await onLog(
+        "stdout",
+        `[paperclip] Discovered ${artifacts.length} Antigravity artifact(s):\n${artifacts.map((a) => `  - ${a}`).join("\n")}\n`,
+      );
+      finalResult.resultJson = {
+        ...(finalResult.resultJson as Record<string, unknown> | undefined),
+        artifacts,
+      };
+    }
+  }
+
+  return finalResult;
 }

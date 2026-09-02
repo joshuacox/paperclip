@@ -139,6 +139,64 @@ export function AgyLocalConfigFields({
             : mark("adapterConfig", "dangerouslySkipPermissions", v ? true : undefined)
         }
       />
+      <Field
+        label="Project name"
+        hint="Optional Antigravity project name or ID for conversation and memory grouping (--project)."
+      >
+        <DraftInput
+          value={
+            isCreate
+              ? (values as any)?.project ?? ""
+              : eff("adapterConfig", "project", String(config.project ?? ""))
+          }
+          onCommit={(v) =>
+            isCreate
+              ? set!({ project: v || undefined } as any)
+              : mark("adapterConfig", "project", v || undefined)
+          }
+          immediate
+          className={inputClass}
+          placeholder="e.g. paperclip, my-project"
+        />
+      </Field>
+      <Field
+        label="Print timeout"
+        hint="Optional CLI print mode wait timeout (e.g. 15m, 30m, 1h). Defaults to aligned Paperclip timeout or 24h."
+      >
+        <DraftInput
+          value={
+            isCreate
+              ? (values as any)?.printTimeout ?? ""
+              : eff("adapterConfig", "printTimeout", String(config.printTimeout ?? ""))
+          }
+          onCommit={(v) =>
+            isCreate
+              ? set!({ printTimeout: v || undefined } as any)
+              : mark("adapterConfig", "printTimeout", v || undefined)
+          }
+          immediate
+          className={inputClass}
+          placeholder="e.g. 15m, 30m, 1h"
+        />
+      </Field>
+      <ToggleField
+        label="Disable slash commands"
+        hint="Disable slash command and skill expansion in print mode (--disable-slash-commands)."
+        checked={
+          isCreate
+            ? Boolean((values as any)?.disableSlashCommands)
+            : eff(
+                "adapterConfig",
+                "disableSlashCommands",
+                Boolean(config.disableSlashCommands),
+              )
+        }
+        onChange={(v) =>
+          isCreate
+            ? set!({ disableSlashCommands: v } as any)
+            : mark("adapterConfig", "disableSlashCommands", v ? true : undefined)
+        }
+      />
       <ToggleField
         label="Sandbox mode"
         hint="Enable strict Antigravity terminal restrictions and sandboxing."

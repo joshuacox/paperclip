@@ -3,9 +3,12 @@ import type { AdapterModelProfileDefinition } from "@paperclipai/adapter-utils";
 export const type = "agy_local";
 export const label = "Antigravity (agy)";
 
-export const DEFAULT_AGY_LOCAL_MODEL = "gemini-3.7-flash-high";
+export const DEFAULT_AGY_LOCAL_MODEL = "gemini-3.8-flash-high";
 
 export const models = [
+  { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+  { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+  { id: "gemini-3.8-flash-low", label: "Gemini 3.8 Flash (Low)" },
   { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
   { id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
   { id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)" },
@@ -26,9 +29,9 @@ export const modelProfiles: AdapterModelProfileDefinition[] = [
   {
     key: "cheap",
     label: "Cheap",
-    description: "Use Gemini 3.5 Flash Low as the lower-cost Antigravity lane while preserving the agent's primary model.",
+    description: "Use Gemini 3.8 Flash Low as the lower-cost Antigravity lane while preserving the agent's primary model.",
     adapterConfig: {
-      model: "gemini-3.5-flash-low",
+      model: "gemini-3.8-flash-low",
       effort: "low",
     },
     source: "adapter_default",
@@ -53,10 +56,18 @@ Core fields:
 - cwd (string, optional): absolute working directory fallback for the agent process (defaults to workspace directory)
 - instructionsFilePath (string, optional): absolute path to a markdown instructions file (e.g. AGENTS.md) prepended to the run prompt
 - promptTemplate (string, optional): run prompt template
-- model (string, optional): model ID. Defaults to "gemini-3.7-flash-high"
+- model (string, optional): model ID. Defaults to "gemini-3.8-flash-high"
 - effort (string, optional): reasoning effort (low | medium | high)
 - mode (string, optional): execution mode (accept-edits | plan)
 - dangerouslySkipPermissions (boolean, optional, default false): allow non-interactive tool calls without prompting
+- project (string, optional): Antigravity project ID or project name passed via --project
+- printTimeout (string, optional): CLI print mode timeout (e.g. "15m", "30m", "1h"); defaults to aligned Paperclip timeoutSec or 24h
+- disableSlashCommands (boolean, optional): disable slash command and skill expansion in print mode (--disable-slash-commands)
+- agent (string, optional): optional Antigravity subagent persona name passed via --agent <name>
+- sandbox (boolean, optional): run in sandbox with terminal restrictions enabled (--sandbox)
+- jsonSchema (string, optional): JSON schema string or path to schema file to enforce structured output (--json-schema)
+- addDirs (string[], optional): additional workspace directories passed via --add-dir
+- workspaceStrategy (object, optional): execution workspace strategy; currently supports { type: "git_worktree", baseRef?, branchTemplate?, worktreeParentDir? }
 - command (string, optional): executable command name or path (defaults to "agy")
 - extraArgs (string[], optional): additional CLI args passed to agy
 - env (object, optional): KEY=VALUE environment variables
