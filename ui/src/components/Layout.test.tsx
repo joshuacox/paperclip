@@ -565,7 +565,7 @@ describe("Layout", () => {
     });
   });
 
-  it("does not mount the Apps secondary sidebar while experimental apps are disabled", async () => {
+  it("mounts the Apps secondary sidebar regardless of the retired experimental flag", async () => {
     currentPathname = "/PAP/apps";
     mockInstanceSettingsApi.getExperimental.mockResolvedValue({ enableApps: false });
     const root = createRoot(container);
@@ -583,9 +583,9 @@ describe("Layout", () => {
     await flushReact();
     await flushReact();
 
-    expect(container.textContent).not.toContain("Apps sidebar");
+    expect(container.textContent).toContain("Apps sidebar");
     expect(container.textContent).toContain("Main company nav");
-    expect(mockSetForceCollapsed).toHaveBeenCalledWith(false);
+    expect(mockSetForceCollapsed).toHaveBeenCalledWith(true);
 
     await act(async () => {
       root.unmount();
@@ -593,7 +593,7 @@ describe("Layout", () => {
   });
 
   it("keeps the Apps sidebar on the M8 advanced-setup tabs", async () => {
-    currentPathname = "/PAP/apps/advanced/run-your-own";
+    currentPathname = "/PAP/apps/advanced/paste-config";
     const root = createRoot(container);
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },

@@ -42,7 +42,7 @@ export function AppNotConnected() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
-  const { selectedCompany, selectedCompanyId } = useCompany();
+  const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
   const activeTab: AppTabKey | null = isAppTabKey(tab) ? tab : null;
 
@@ -115,13 +115,12 @@ export function AppNotConnected() {
   useEffect(() => {
     if (!activeTab) return;
     setBreadcrumbs([
-      { label: selectedCompany?.name ?? "Organization", href: "/dashboard" },
-      { label: "Apps", href: "/apps" },
+      { label: "Connectors", href: "/apps" },
       { label: appName, href: appApplicationTabHref(applicationId, "setup") },
       { label: appTabLabel(activeTab) },
     ]);
     return () => setBreadcrumbs([]);
-  }, [setBreadcrumbs, selectedCompany?.name, appName, applicationId, activeTab]);
+  }, [setBreadcrumbs, appName, applicationId, activeTab]);
 
   const remove = useMutation({
     mutationFn: () => toolsApi.updateApplication(applicationId, { status: "archived" }),
@@ -132,7 +131,7 @@ export function AppNotConnected() {
         body: `${appName} no longer shows in your apps. You can connect it again any time.`,
         tone: "success",
       });
-      navigate("/apps/connections");
+      navigate("/apps");
     },
     onError: (error) => {
       pushToast({
@@ -147,7 +146,7 @@ export function AppNotConnected() {
     return <div className="p-6 text-sm text-muted-foreground">Select an organization to manage apps.</div>;
   }
   if (!applicationId || !activeTab) {
-    return <Navigate to={applicationId ? appApplicationTabHref(applicationId, "setup") : "/apps/connections"} replace />;
+    return <Navigate to={applicationId ? appApplicationTabHref(applicationId, "setup") : "/apps"} replace />;
   }
   if (applicationsQuery.isLoading || connectionsQuery.isLoading) {
     return (
@@ -161,7 +160,7 @@ export function AppNotConnected() {
     return (
       <div className="max-w-3xl space-y-3 p-6 text-sm text-muted-foreground">
         <p>This app doesn’t exist anymore.</p>
-        <Button variant="outline" size="sm" onClick={() => navigate("/apps/connections")}>Back to apps</Button>
+        <Button variant="outline" size="sm" onClick={() => navigate("/apps")}>Back to connectors</Button>
       </div>
     );
   }

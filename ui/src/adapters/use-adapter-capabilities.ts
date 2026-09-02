@@ -8,7 +8,6 @@ const ALL_FALSE: AdapterCapabilities = {
   supportsSkills: false,
   supportsLocalAgentJwt: false,
   requiresMaterializedRuntimeSkills: false,
-  supportsModelProfiles: false,
   supportsAcp: false,
 };
 

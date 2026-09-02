@@ -119,7 +119,6 @@ export function thinkingEffortValueFor(adapterType: string | null | undefined, a
 }
 
 export function overrideLane(overrides: Issue["assigneeAdapterOverrides"]): IssueModelLane {
-  if (overrides?.modelProfile === "cheap") return "cheap";
   if (overrides?.adapterConfig) return "custom";
   return "primary";
 }

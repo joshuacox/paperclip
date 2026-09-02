@@ -74,7 +74,7 @@ export function AppDetail() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { pushToast } = useToast();
-  const { selectedCompany, selectedCompanyId } = useCompany();
+  const { selectedCompanyId } = useCompany();
   const { setBreadcrumbs } = useBreadcrumbs();
 
   const activeTab: AppTabKey | null = isAppTabKey(tab) ? tab : null;
@@ -250,13 +250,12 @@ export function AppDetail() {
   useEffect(() => {
     if (!activeTab) return;
     setBreadcrumbs([
-      { label: selectedCompany?.name ?? "Organization", href: "/dashboard" },
-      { label: "Apps", href: "/apps" },
+      { label: "Connectors", href: "/apps" },
       { label: appName, href: appTabHref(connectionId, "setup") },
       { label: appTabLabel(activeTab) },
     ]);
     return () => setBreadcrumbs([]);
-  }, [setBreadcrumbs, selectedCompany?.name, appName, connectionId, activeTab]);
+  }, [setBreadcrumbs, appName, connectionId, activeTab]);
 
   const catalog = catalogQuery.data?.catalog ?? [];
   const profile = useMemo(
@@ -299,6 +298,7 @@ export function AppDetail() {
       }),
     onMutate: () => setPending(true),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tools.testAgentAccessesForConnection(connectionId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tools.connection(connectionId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tools.catalog(connectionId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tools.profiles(selectedCompanyId!) });
@@ -320,6 +320,7 @@ export function AppDetail() {
       toolsApi.putConnectionInstalls(connectionId, installPayload(selectedCompanyId!, next)),
     onSuccess: (snapshot) => {
       queryClient.setQueryData(queryKeys.tools.connectionInstalls(connectionId), snapshot);
+      queryClient.invalidateQueries({ queryKey: queryKeys.tools.testAgentAccessesForConnection(connectionId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tools.connection(connectionId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tools.connections(selectedCompanyId!) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tools.profiles(selectedCompanyId!) });
@@ -480,7 +481,7 @@ export function AppDetail() {
         body: `${appName} no longer has access and its credentials are deleted. Connecting it again needs a new sign-in or key.`,
         tone: "success",
       });
-      navigate("/apps/connections");
+      navigate("/apps");
     },
     onError: (error) =>
       pushToast({
@@ -516,6 +517,7 @@ export function AppDetail() {
   const refreshTools = useMutation({
     mutationFn: () => toolsApi.refreshCatalog(connectionId),
     onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.tools.testAgentAccessesForConnection(connectionId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tools.connection(connectionId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tools.catalog(connectionId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.tools.connections(selectedCompanyId!) });
@@ -557,7 +559,7 @@ export function AppDetail() {
   };
 
   if (!connectionId || !activeTab) {
-    return <Navigate replace to={connectionId ? appTabHref(connectionId, "setup") : "/apps/connections"} />;
+    return <Navigate replace to={connectionId ? appTabHref(connectionId, "setup") : "/apps"} />;
   }
 
   if (!selectedCompanyId) {
@@ -576,8 +578,8 @@ export function AppDetail() {
     return (
       <div className="max-w-3xl p-6">
         <p className="text-sm text-muted-foreground">We couldn't find that app.</p>
-        <Button className="mt-4" variant="outline" onClick={() => navigate("/apps/connections")}>
-          Back to apps
+        <Button className="mt-4" variant="outline" onClick={() => navigate("/apps")}>
+          Back to connectors
         </Button>
       </div>
     );

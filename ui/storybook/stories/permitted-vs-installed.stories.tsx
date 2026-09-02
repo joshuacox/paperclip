@@ -269,13 +269,21 @@ function SeededAccessStep({
   initialGrantKind,
   initialChoice,
   initialAgentIds,
-  capabilities = { canSetCompanyInstall: true, editableAgentIds: AGENT_IDS },
+  capabilities = {
+    canCreateOrganizationGrant: true,
+    canSetCompanyInstall: true,
+    editableAgentIds: AGENT_IDS,
+  },
 }: {
   authKind: "oauth" | "api_key" | "none";
   initialGrantKind: "user" | "organization";
   initialChoice: "specific" | "all";
   initialAgentIds: Set<string>;
-  capabilities?: { canSetCompanyInstall: boolean; editableAgentIds: string[] };
+  capabilities?: {
+    canCreateOrganizationGrant: boolean;
+    canSetCompanyInstall: boolean;
+    editableAgentIds: string[];
+  };
 }) {
   const client = useMemo(() => {
     const c = new QueryClient({
@@ -291,8 +299,6 @@ function SeededAccessStep({
     <QueryClientProvider client={client}>
       <div className="bg-background p-6">
         <AccessStep
-          appName="Gmail"
-          providerName="Gmail"
           companyId={COMPANY}
           authKind={authKind}
           grantKind={grantKind}
@@ -312,7 +318,7 @@ function SeededAccessStep({
 }
 
 export const ConnectAccessJustMePickedAgents: Story = {
-  name: "3 · Connect Access — Just me + Agents I pick",
+  name: "3 · Connect Access — Just me + Just agents I pick",
   render: () => (
     <SeededAccessStep
       authKind="oauth"
