@@ -117,6 +117,13 @@ describe("parseAgyJsonl", () => {
     expect(parsed.isError).toBe(true);
     expect(parsed.errorMessage).toBe("Command failed with exit code 1");
   });
+
+  it("falls back to raw stdout when no JSONL events are present", () => {
+    const parsed = parseAgyJsonl("Hello! Systems are operational.");
+    expect(parsed.summary).toBe("Hello! Systems are operational.");
+    expect(parsed.sessionId).toBeNull();
+    expect(parsed.isError).toBe(false);
+  });
 });
 
 describe("isAgyUnknownSessionError", () => {

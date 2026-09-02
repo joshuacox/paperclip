@@ -100,7 +100,7 @@ export function parseAgyJsonl(stdout: string): ParsedAgyOutput {
     }
   }
 
-  const summary = assistantTexts.join("").trim();
+  const summary = assistantTexts.join("").trim() || stdout.trim();
 
   return {
     sessionId,
