@@ -1,5 +1,3 @@
-import type { AdapterModelProfileDefinition } from "@paperclipai/adapter-utils";
-
 export const type = "agy_local";
 export const label = "Antigravity (agy)";
 
@@ -23,19 +21,6 @@ export const models = [
   { id: "claude-sonnet-4-6", label: "Claude Sonnet 4.6 (Thinking)" },
   { id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)" },
   { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
-];
-
-export const modelProfiles: AdapterModelProfileDefinition[] = [
-  {
-    key: "cheap",
-    label: "Cheap",
-    description: "Use Gemini 3.8 Flash Low as the lower-cost Antigravity lane while preserving the agent's primary model.",
-    adapterConfig: {
-      model: "gemini-3.8-flash-low",
-      effort: "low",
-    },
-    source: "adapter_default",
-  },
 ];
 
 export const agentConfigurationDoc = `# agy_local agent configuration

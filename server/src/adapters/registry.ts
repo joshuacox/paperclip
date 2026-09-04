@@ -130,7 +130,6 @@ import {
 } from "@paperclipai/adapter-pi-local/server";
 import {
   agentConfigurationDoc as piAgentConfigurationDoc,
-  modelProfiles as piModelProfiles,
 } from "@paperclipai/adapter-pi-local";
 import {
   execute as agyExecute,
@@ -143,9 +142,7 @@ import {
 import {
   agentConfigurationDoc as agyAgentConfigurationDoc,
   models as agyModels,
-  modelProfiles as agyModelProfiles,
 } from "@paperclipai/adapter-agy-local";
-import { agentConfigurationDoc as piAgentConfigurationDoc } from "@paperclipai/adapter-pi-local";
 import { BUILTIN_ADAPTER_TYPES } from "./builtin-adapter-types.js";
 import { buildExternalAdapters } from "./plugin-loader.js";
 import { getDisabledAdapterTypes } from "../services/adapter-plugin-store.js";
@@ -848,6 +845,7 @@ const piLocalAdapter: ServerAdapterModule = {
 
 const agyLocalAdapter: ServerAdapterModule = {
   type: "agy_local",
+  runtimeToolDelivery: "environment",
   execute: agyExecute,
   testEnvironment: agyTestEnvironment,
   listSkills: listAgySkills,
@@ -855,7 +853,6 @@ const agyLocalAdapter: ServerAdapterModule = {
   sessionCodec: agySessionCodec,
   sessionManagement: getAdapterSessionManagement("agy_local") ?? undefined,
   models: agyModels,
-  modelProfiles: agyModelProfiles,
   listModels: listAgyModels,
   supportsLocalAgentJwt: true,
   supportsInstructionsBundle: true,

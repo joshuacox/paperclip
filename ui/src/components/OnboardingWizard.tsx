@@ -2695,6 +2695,14 @@ function OnboardingWizardInner({
                         mode={credentialMode}
                         onChange={setCredentialMode}
                       />
+                    </div>
+
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 mt-3 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setShowMoreAdapters((v) => !v)}
+                    >
+                      <ChevronDown className={cn("h-3 w-3 transition-transform", showMoreAdapters ? "rotate-0" : "-rotate-90")} />
                       Advanced settings
                     </button>
 
