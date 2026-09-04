@@ -95,6 +95,7 @@ export interface EnvironmentFixture {
 export type Matcher =
   | { kind: "message_exact"; expected: string }
   | { kind: "message_contains"; expected: string }
+  | { kind: "message_occurrences"; expected: string; count: number }
   | { kind: "message_regex"; pattern: string; flags?: string }
   | { kind: "message_ordered"; expected: readonly string[] }
   | { kind: "issue_status"; expected: string }
@@ -127,6 +128,8 @@ export interface RunnerTaskFixture {
     optionLabel: string;
     expectedMarker: string;
   };
+  /** Restart the isolated Paperclip server after the waiting turn settles. */
+  restartServerBeforeQuestionAnswer?: boolean;
   buildPlanMarkers?(nonce: string): {
     draft: string;
     revised: string;
@@ -153,6 +156,7 @@ export interface RunnerSuiteFixture {
   profiles: readonly RunnerProfileFixture[];
   environments: readonly EnvironmentFixture[];
   tasks: readonly RunnerTaskFixture[];
+  excludedExecutionIds?: readonly string[];
   expectedMatrixSize: number;
   definitionMetadata?: Readonly<Record<string, unknown>>;
 }
@@ -170,6 +174,7 @@ export interface MatrixJob {
 
 export type FailureClass =
   | "candidate_failure"
+  | "provider_variance"
   | "transient_infrastructure"
   | "permanent_infrastructure"
   | "secret_leak"

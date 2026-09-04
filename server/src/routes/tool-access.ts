@@ -60,6 +60,7 @@ import {
   type PaperclipCloudConnector,
   paperclipCloudConnectorCapabilitiesFromEnv,
 } from "../services/paperclip-cloud-connector.js";
+import { runtimeCanonicalOrigin } from "../services/cloud-runtime-identity.js";
 import {
   completePaperclipCloudConnectorEnrollment,
   loadPaperclipCloudConnectorIdentity,
@@ -298,12 +299,14 @@ export function toolAccessRoutes(
   }
 
   function configuredPublicBaseUrl() {
+    const runtimeOrigin = runtimeCanonicalOrigin();
+    if (runtimeOrigin) return runtimeOrigin;
     const raw = (
-      process.env.PAPERCLIP_PUBLIC_URL?.trim()
-      || process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL?.trim()
+      process.env.PAPERCLIP_AUTH_PUBLIC_BASE_URL?.trim()
       || process.env.BETTER_AUTH_URL?.trim()
       || process.env.BETTER_AUTH_BASE_URL?.trim()
       || options.authPublicBaseUrl?.trim()
+      || process.env.PAPERCLIP_PUBLIC_URL?.trim()
       || process.env.PAPERCLIP_MANAGED_RUNTIME_PUBLIC_URL?.trim()
     );
     if (!raw) return null;
@@ -426,7 +429,6 @@ export function toolAccessRoutes(
   async function oauthAppPath(
     companyId: string,
     connectionId: string,
-    tab: "setup" | "test",
   ) {
     const [company] = await db
       .select({ issuePrefix: companies.issuePrefix })
@@ -434,8 +436,8 @@ export function toolAccessRoutes(
       .where(eq(companies.id, companyId))
       .limit(1);
     if (!company) throw new Error("OAuth callback connection belongs to a missing company");
-    return `/${company.issuePrefix}/apps/${connectionId}/${tab}`;
-}
+    return `/${company.issuePrefix}/apps/${connectionId}/permissions`;
+  }
 
 function connectorEnrollmentPrincipal(req: Request): string {
   return req.actor.userId ? `user:${req.actor.userId}` : `source:${req.actor.source ?? "board"}`;
@@ -452,17 +454,17 @@ function connectorEnrollmentPrincipal(req: Request): string {
     outcome: "failed" | "denied",
     code?: string | null,
   ) {
-    const detailSetupPath = await oauthAppPath(connection.companyId, connection.id, "setup");
+    const detailPermissionsPath = await oauthAppPath(connection.companyId, connection.id);
     const params = new URLSearchParams({ oauth: outcome });
     if (code) params.set("code", code);
     const source = connection.config?.sourceTemplateKey
       ?? connection.transportConfig?.sourceTemplateKey;
     if (connection.status !== "draft" || typeof source !== "string" || !source.trim()) {
-      return `${detailSetupPath}?${params.toString()}`;
+      return `${detailPermissionsPath}?${params.toString()}`;
     }
 
-    const appsSegment = detailSetupPath.indexOf("/apps/");
-    const companyPrefix = appsSegment >= 0 ? detailSetupPath.slice(0, appsSegment) : "";
+    const appsSegment = detailPermissionsPath.indexOf("/apps/");
+    const companyPrefix = appsSegment >= 0 ? detailPermissionsPath.slice(0, appsSegment) : "";
     const setupParams = new URLSearchParams({
       source,
       resume: connection.id,
@@ -732,7 +734,7 @@ function connectorEnrollmentPrincipal(req: Request): string {
       returnTo: req.body.returnTo,
       redirectUri: oauthRedirectUri(req),
     });
-    res.json({ url: result.authorizationUrl });
+    res.json({ url: result.authorizationUrl, ...(result.handoff ? { handoff: result.handoff } : {}) });
   });
 
   router.post("/agents/me/connections/:connectionId/token", validate(connectionTokenRequestSchema), async (req, res) => {
@@ -867,6 +869,7 @@ function connectorEnrollmentPrincipal(req: Request): string {
             ...(req.body.interactionId ? { interactionId: req.body.interactionId } : {}),
           });
           result.auth.startUrl = start.authorizationUrl;
+          result.auth.handoff = start.handoff;
           result.auth.issuer = start.issuer ?? result.auth.issuer ?? null;
           result.auth.resource = start.resource ?? result.auth.resource ?? null;
           result.auth.registrationSource = start.registrationSource ?? null;
@@ -923,7 +926,7 @@ function connectorEnrollmentPrincipal(req: Request): string {
         scopes: req.body.scopes,
         returnTo: req.body.returnTo,
       });
-      res.json({ url: result.authorizationUrl });
+      res.json({ url: result.authorizationUrl, ...(result.handoff ? { handoff: result.handoff } : {}) });
     },
   );
 
@@ -1103,8 +1106,8 @@ function connectorEnrollmentPrincipal(req: Request): string {
         return;
       }
       if (acceptsHtml) {
-        const testPath = await oauthAppPath(result.connection.companyId, result.connection.id, "test");
-        res.redirect(303, `${testPath}?success=1`);
+        const permissionsPath = await oauthAppPath(result.connection.companyId, result.connection.id);
+        res.redirect(303, `${permissionsPath}?success=1`);
         return;
       }
       res.json(result);
@@ -1194,8 +1197,8 @@ function connectorEnrollmentPrincipal(req: Request): string {
         return;
       }
       if (acceptsHtml) {
-        const testPath = await oauthAppPath(result.connection.companyId, result.connection.id, "test");
-        res.redirect(303, `${testPath}?success=1`);
+        const permissionsPath = await oauthAppPath(result.connection.companyId, result.connection.id);
+        res.redirect(303, `${permissionsPath}?success=1`);
         return;
       }
       res.json(result);
@@ -1356,8 +1359,8 @@ function connectorEnrollmentPrincipal(req: Request): string {
       return;
     }
     if (acceptsHtml) {
-      const testPath = await oauthAppPath(result.connection.companyId, result.connection.id, "test");
-      res.redirect(303, `${testPath}?success=1`);
+      const permissionsPath = await oauthAppPath(result.connection.companyId, result.connection.id);
+      res.redirect(303, `${permissionsPath}?success=1`);
       return;
     }
     res.json(result);
@@ -2135,7 +2138,20 @@ function connectorEnrollmentPrincipal(req: Request): string {
     const existing = await getAccessibleResource(req, res, svc.getConnection(req.params.connectionId as string), "Tool connection not found");
     if (!existing) return;
     await assertToolConnectionConfigureAccess(req, existing);
-    res.json(await svc.refreshCatalog(existing.id, getActorInfo(req)));
+    const result = await svc.refreshCatalog(existing.id, getActorInfo(req));
+    await logActivity(db, {
+      companyId: existing.companyId,
+      actorType: "user",
+      actorId: req.actor.userId ?? "board",
+      action: "tool_connection.catalog_refresh",
+      entityType: "tool_connection",
+      entityId: existing.id,
+      details: {
+        discoveredCount: result.discoveredCount,
+        quarantinedCount: result.quarantinedCount,
+      },
+    });
+    res.json(result);
   });
 
   router.get("/tool-connections/:connectionId/catalog", async (req, res) => {

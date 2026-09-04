@@ -28,6 +28,7 @@ import type {
   ToolConnectionAuthKind,
   ToolConnectionCredentialSource,
   ToolConnectionCreateCapabilities,
+  ToolOAuthStartResult,
 } from "@paperclipai/shared";
 import {
   connectionMethodAcceptsCustomerOAuthClient,
@@ -63,6 +64,7 @@ import { cn } from "@/lib/utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { resolveAuthorizationTarget } from "@/lib/authorizationUrl";
 import { navigateTopLevel } from "@/lib/browserNavigation";
+import { prepareOAuthNavigation, savePendingCloudHandoff } from "@/lib/oauthHandoff";
 import { redactUrlSecrets } from "@/lib/redact-url-secrets";
 import { AppLogo } from "@/pages/apps/AppLogo";
 import { appApplicationSourceSlug } from "@/pages/apps/app-definition-display";
@@ -209,7 +211,7 @@ const STEP_INDEX: Record<Exclude<Step, "success">, number> = {
   access: 1,
   key: 2,
 };
-const ZAPIER_STEP_INDEX: Record<Exclude<Step, "gallery" | "success">, number> = {
+const SELECTED_APP_STEP_INDEX: Record<Exclude<Step, "gallery" | "success">, number> = {
   access: 0,
   key: 1,
 };
@@ -439,7 +441,9 @@ export function ConnectionSetupFlow({
   });
 
   const [step, setStep] = useState<Step>(
-    requestedAppKey ? "key" : prefill.link || zapierSource ? "access" : "gallery",
+    requestedAppKey
+      ? resumeConnectionId ? "key" : "access"
+      : prefill.link || zapierSource ? "access" : "gallery",
   );
   const [entry, setEntry] = useState<AppDefinition | null>(null);
   const [galleryName, setGalleryName] = useState("");
@@ -502,6 +506,7 @@ export function ConnectionSetupFlow({
   const hydratedResumeConnectionIdRef = useRef<string | null>(null);
   const [hydratedResumeConnectionId, setHydratedResumeConnectionId] = useState<string | null>(null);
   const oauthPopupRef = useRef<Window | null>(null);
+  const oauthHandoffAbortRef = useRef<AbortController | null>(null);
   const [showConnectionChoice, setShowConnectionChoice] = useState(
     existingConnections.length > 0 && Boolean(onUseExisting),
   );
@@ -533,6 +538,38 @@ export function ConnectionSetupFlow({
     popup.location.assign(url);
     popup.focus();
   }, [host, onPhaseChange]);
+
+  const prepareAndOpenOAuth = useCallback(async (
+    start: Pick<ToolOAuthStartResult, "authorizationUrl" | "handoff">,
+  ) => {
+    oauthHandoffAbortRef.current?.abort();
+    const controller = new AbortController();
+    oauthHandoffAbortRef.current = controller;
+    try {
+      const target = await prepareOAuthNavigation(start, { signal: controller.signal });
+      if (target.kind === "reauthentication") {
+        const destination = host === "dialog" ? oauthPopupRef.current : window;
+        if (!destination || destination.closed || !start.handoff) {
+          throw new Error("Paperclip couldn’t preserve this sign-in while refreshing your account.");
+        }
+        savePendingCloudHandoff(start.handoff.session, destination.sessionStorage);
+        setOAuthPhase("starting");
+      } else {
+        setAuthorizationHost(target.host);
+        setOAuthPhase("redirecting");
+      }
+      openAuthorization(target.url);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setOAuthPhase("error");
+      setOAuthError(error instanceof Error ? error.message : "Paperclip couldn’t start secure sign-in. Try again.");
+      onPhaseChange?.("needs_retry");
+    } finally {
+      if (oauthHandoffAbortRef.current === controller) oauthHandoffAbortRef.current = null;
+    }
+  }, [host, onPhaseChange, openAuthorization]);
+
+  useEffect(() => () => oauthHandoffAbortRef.current?.abort(), []);
 
   useEffect(() => {
     if (host !== "dialog" || !connectionIntentId) return;
@@ -804,20 +841,7 @@ export function ConnectionSetupFlow({
       asCurrentUser: connection.credentialPolicy === "per_user",
       ...(connectionIntentId ? { interactionId: connectionIntentId } : {}),
     }),
-    onSuccess: ({ authorizationUrl }) => {
-      // The endpoint chose this address, so it is checked here too — this is the
-      // line where an unsafe scheme would actually run (PAP-17099).
-      const target = resolveAuthorizationTarget(authorizationUrl);
-      if (!target.ok) {
-        setOAuthPhase("error");
-        setOAuthError(target.message);
-        onPhaseChange?.("needs_retry");
-        return;
-      }
-      setAuthorizationHost(target.host);
-      setOAuthPhase("redirecting");
-      openAuthorization(target.url);
-    },
+    onSuccess: (start) => void prepareAndOpenOAuth(start),
     onError: (error) => {
       const details = error instanceof ApiError && error.body && typeof error.body === "object"
         ? (error.body as { details?: { code?: unknown } }).details
@@ -963,18 +987,11 @@ export function ConnectionSetupFlow({
           startOAuth(result.connection);
           return;
         }
-        const target = resolveAuthorizationTarget(startUrl);
-        if (!target.ok) {
-          setGenericOAuthPending(true);
-          setOAuthPhase("error");
-          setOAuthError(target.message);
-          onPhaseChange?.("needs_retry");
-          return;
-        }
-        setAuthorizationHost(target.host);
-        setOAuthPhase("redirecting");
         setGenericOAuthPending(true);
-        openAuthorization(target.url);
+        void prepareAndOpenOAuth({
+          authorizationUrl: startUrl,
+          handoff: result.auth.handoff,
+        });
         return;
       }
       setLinkGuidance(null);
@@ -1550,11 +1567,15 @@ export function ConnectionSetupFlow({
           }
         }}
         onBack={() => {
+          oauthHandoffAbortRef.current?.abort();
           setOAuthPhase("entry");
           setOAuthError(null);
           setAppStep("access");
         }}
-        onCancel={onCancel ?? (() => navigate("/apps"))}
+        onCancel={() => {
+          oauthHandoffAbortRef.current?.abort();
+          (onCancel ?? (() => navigate("/apps")))();
+        }}
       />
     );
   }
@@ -1585,11 +1606,15 @@ export function ConnectionSetupFlow({
           setOAuthPhase("entry");
         }}
         onBack={() => {
+          oauthHandoffAbortRef.current?.abort();
           setGenericOAuthPending(false);
           setOAuthPhase("entry");
           setOAuthError(null);
         }}
-        onCancel={onCancel ?? (() => navigate("/apps"))}
+        onCancel={() => {
+          oauthHandoffAbortRef.current?.abort();
+          (onCancel ?? (() => navigate("/apps")))();
+        }}
       />
     );
   }
@@ -1610,11 +1635,13 @@ export function ConnectionSetupFlow({
   const stepLabels = zapierSource
     ? ZAPIER_STEP_LABELS
     : entry && credentialSourceMethods.length > 1
-      ? ["Pick app", "Access", "Choose connection"]
+      ? ["Access", "Choose connection"]
     : entry && credentialSourceMethods[0]?.auth === "oauth"
-      ? ["Pick app", "Access", "Sign in"]
+      ? ["Access", "Sign in"]
     : isGoogleSheetsRobotMethod(entry, connectionMethodKey)
-      ? ["Pick app", "Access", "Share sheet"]
+      ? ["Access", "Share sheet"]
+      : entry
+        ? ["Access", "Add your key"]
       : STEP_LABELS;
   // The Access step's identity question only makes sense when there *is* a
   // credential, so it reads the selected method's auth kind.
@@ -1639,8 +1666,8 @@ export function ConnectionSetupFlow({
     ? `Continue to ${entry?.name ?? "sign-in"}`
     : "Save and continue";
 
-  const stepIndex = zapierSource && step !== "gallery" && step !== "success"
-    ? ZAPIER_STEP_INDEX[step]
+  const stepIndex = (zapierSource || entry) && step !== "gallery" && step !== "success"
+    ? SELECTED_APP_STEP_INDEX[step]
     : step === "success"
       ? stepLabels.length
       : STEP_INDEX[step];

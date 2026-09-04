@@ -53,7 +53,7 @@ export const INSTANCE_FEATURE_CATALOG: Record<InstanceFeatureKey, FeatureCatalog
   enableNativeRunner: {
     title: "Paperclip Runner",
     description:
-      "Allow new Codex agents to use the experimental Rust Paperclip Runner, including authenticated sandbox ingress when required.",
+      "Allow explicitly configured local Codex, OpenCode, and qualified ACPX agents to use the experimental Rust Paperclip Runner, including authenticated sandbox ingress when required. Onboarding remains on legacy adapters.",
     tier: "managed",
     cloudDefault: false,
     selfHostedDefault: false,
@@ -77,6 +77,14 @@ export const INSTANCE_FEATURE_CATALOG: Record<InstanceFeatureKey, FeatureCatalog
   enableStreamlinedLeftNavigation: {
     title: "Streamlined Left Navigation",
     description: "Use the streamlined main sidebar navigation layout.",
+    tier: "preference",
+    cloudDefault: true,
+    selfHostedDefault: true,
+  },
+  enableStreamlinedUi: {
+    title: "Streamlined UI",
+    description:
+      "Use the streamlined application shell, shared task collections, focused task detail layout, contextual navigation, and simplified main sidebar.",
     tier: "preference",
     cloudDefault: true,
     selfHostedDefault: true,
