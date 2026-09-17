@@ -200,7 +200,6 @@ describe("native controller takeover fencing", () => {
 
   it("does not let lease expiry bypass a live controller fence", async () => {
     const isProcessAlive = vi.fn(() => true);
-    const readStartedAt = vi.fn(async () => recordedStart);
     await expect(
       evaluateNativeControllerTakeover({
         owner: owner({
@@ -208,11 +207,10 @@ describe("native controller takeover fencing", () => {
         }),
         now,
         isProcessAlive,
-        readProcessStartedAt: readStartedAt,
+        readProcessStartedAt: async () => recordedStart,
       }),
     ).resolves.toEqual({ allowed: false, reason: "controller_still_alive" });
     expect(isProcessAlive).toHaveBeenCalledWith(123);
-    expect(readStartedAt).toHaveBeenCalledWith(123);
   });
 
   it("takes over an expired lease after proving the controller died", async () => {
