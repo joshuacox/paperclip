@@ -227,7 +227,7 @@ export function AgyLocalConfigFields({
         <Field
           configSection="advanced"
           label="Per-agent skills root"
-          hint="Optional override for the directory holding this agent's skills (<root>/.agents/skills). Defaults to ~/.agy-paperclip/agents/<agentId>."
+          hint="Optional override for the directory holding this agent's skills (<root>/<agentId>/.agents/skills). Defaults to ~/.agy-paperclip/agents/<agentId>."
         >
           <DraftInput
             value={
@@ -242,7 +242,7 @@ export function AgyLocalConfigFields({
             }
             immediate
             className={inputClass}
-            placeholder="e.g. ~/.agy-paperclip/agents/custom-root"
+            placeholder="e.g. ~/.agy-paperclip/agents or /srv/agy-skills"
           />
         </Field>
       )}

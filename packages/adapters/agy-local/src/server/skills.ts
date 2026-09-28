@@ -101,10 +101,18 @@ export function resolveAgySkillRoot(input: ResolveAgySkillRootInput): AgySkillRo
   const homeDir = input.homeDir ?? os.homedir();
   const scope = normalizeScope(config.skillsScope);
 
+  const safeAgentId = sanitizeAgentIdSegment(agentId);
   const configuredRoot = asString(config.skillsRootPath, "").trim();
-  const addDir = configuredRoot
-    ? path.resolve(configuredRoot)
-    : path.join(homeDir, ...AGY_AGENT_SKILL_ROOT_SEGMENTS, sanitizeAgentIdSegment(agentId));
+  let addDir: string;
+  if (configuredRoot) {
+    const resolvedRoot = path.resolve(configuredRoot);
+    addDir =
+      path.basename(resolvedRoot) === safeAgentId
+        ? resolvedRoot
+        : path.join(resolvedRoot, safeAgentId);
+  } else {
+    addDir = path.join(homeDir, ...AGY_AGENT_SKILL_ROOT_SEGMENTS, safeAgentId);
+  }
 
   const hasGlobalScope =
     typeof config.skillsScope === "string" &&

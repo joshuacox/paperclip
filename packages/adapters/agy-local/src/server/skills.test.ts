@@ -50,14 +50,45 @@ describe("agy skills path resolution", () => {
     expect(AGY_WORKSPACE_SKILL_SUBPATH).toBe(path.join(".agents", "skills"));
   });
 
-  it("agent scope honours an explicit skillsRootPath and appends .agents/skills to it", () => {
+  it("agent scope honours an explicit skillsRootPath and makes it agent-specific", () => {
     const root = resolveAgySkillRoot({
       config: { skillsRootPath: "/srv/agy-skills" },
       agentId: AGENT_ID,
       homeDir: "/home/u",
     });
-    expect(root.addDir).toBe(path.resolve("/srv/agy-skills"));
-    expect(root.skillsHome).toBe(path.join("/srv/agy-skills", ".agents", "skills"));
+    expect(root.addDir).toBe(path.join(path.resolve("/srv/agy-skills"), AGENT_ID));
+    expect(root.skillsHome).toBe(
+      path.join(path.resolve("/srv/agy-skills"), AGENT_ID, ".agents", "skills"),
+    );
+  });
+
+  it("agent scope does not duplicate the agent segment if skillsRootPath already ends with it", () => {
+    const customWithAgent = path.join("/srv/agy-skills", AGENT_ID);
+    const root = resolveAgySkillRoot({
+      config: { skillsRootPath: customWithAgent },
+      agentId: AGENT_ID,
+      homeDir: "/home/u",
+    });
+    expect(root.addDir).toBe(path.resolve(customWithAgent));
+    expect(root.skillsHome).toBe(path.join(path.resolve(customWithAgent), ".agents", "skills"));
+  });
+
+  it("different agents with identical skillsRootPath resolve to distinct isolated directories", () => {
+    const otherAgentId = "98765432-1234-5678-9abc-def012345678";
+    const root1 = resolveAgySkillRoot({
+      config: { skillsRootPath: "/srv/agy-skills" },
+      agentId: AGENT_ID,
+      homeDir: "/home/u",
+    });
+    const root2 = resolveAgySkillRoot({
+      config: { skillsRootPath: "/srv/agy-skills" },
+      agentId: otherAgentId,
+      homeDir: "/home/u",
+    });
+    expect(root1.addDir).not.toBe(root2.addDir);
+    expect(root1.skillsHome).not.toBe(root2.skillsHome);
+    expect(root1.addDir).toBe(path.join(path.resolve("/srv/agy-skills"), AGENT_ID));
+    expect(root2.addDir).toBe(path.join(path.resolve("/srv/agy-skills"), otherAgentId));
   });
 
   it("global scope falls back to per-agent scope with a warning to protect isolation", () => {
@@ -81,8 +112,10 @@ describe("agy skills path resolution", () => {
       homeDir: "/home/u",
     });
     expect(root.scope).toBe("agent");
-    expect(root.addDir).toBe(path.resolve("/srv/agy-skills"));
-    expect(root.skillsHome).toBe(path.join("/srv/agy-skills", ".agents", "skills"));
+    expect(root.addDir).toBe(path.join(path.resolve("/srv/agy-skills"), AGENT_ID));
+    expect(root.skillsHome).toBe(
+      path.join(path.resolve("/srv/agy-skills"), AGENT_ID, ".agents", "skills"),
+    );
     expect(root.warnings?.[0]).toMatch(/disabled to prevent cross-company skill leakage/);
   });
 
@@ -160,7 +193,7 @@ describe("listSkills and syncSkills", () => {
         ["paperclipai/paperclip/alpha"],
       );
 
-      const skillsHome = path.join(rootPath, ".agents", "skills");
+      const skillsHome = path.join(rootPath, AGENT_ID, ".agents", "skills");
       expect(await fs.realpath(path.join(skillsHome, "alpha"))).toBe(await fs.realpath(alpha));
       expect(await fs.readFile(path.join(skillsHome, "alpha", "SKILL.md"), "utf8")).toMatch(/Alpha skill/);
       expect(await fs.lstat(path.join(skillsHome, "beta")).catch(() => null)).toBeNull();
@@ -188,7 +221,7 @@ describe("listSkills and syncSkills", () => {
       await syncSkills(ctx, ["paperclipai/paperclip/alpha"]);
       await syncSkills(ctx, []);
 
-      const skillsHome = path.join(rootPath, ".agents", "skills");
+      const skillsHome = path.join(rootPath, AGENT_ID, ".agents", "skills");
       expect(await fs.lstat(path.join(skillsHome, "alpha")).catch(() => null)).toBeNull();
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
@@ -200,7 +233,7 @@ describe("listSkills and syncSkills", () => {
     try {
       const alpha = await writeSkillSource(path.join(tmp, "src"), "alpha", "Alpha skill");
       const rootPath = path.join(tmp, "root");
-      const skillsHome = path.join(rootPath, ".agents", "skills");
+      const skillsHome = path.join(rootPath, AGENT_ID, ".agents", "skills");
 
       await writeSkillSource(skillsHome, "alpha", "Operator's own alpha");
 
@@ -247,7 +280,7 @@ describe("listSkills and syncSkills", () => {
         ["paperclipai/paperclip/ghost"],
       );
 
-      const skillsHome = path.join(rootPath, ".agents", "skills");
+      const skillsHome = path.join(rootPath, AGENT_ID, ".agents", "skills");
       expect(await fs.lstat(path.join(skillsHome, "ghost")).catch(() => null)).toBeNull();
       expect(snapshot.entries.find((entry) => entry.runtimeName === "ghost")?.state).toBe("missing");
     } finally {
@@ -289,9 +322,9 @@ describe("syncSkillsForRun and receipts", () => {
         ),
       });
 
-      const skillsHome = path.join(rootPath, ".agents", "skills");
+      const skillsHome = path.join(rootPath, AGENT_ID, ".agents", "skills");
       expect(await fs.readFile(path.join(skillsHome, "alpha", "SKILL.md"), "utf8")).toMatch(/Alpha skill/);
-      expect(result.root.addDir).toBe(path.resolve(rootPath));
+      expect(result.root.addDir).toBe(path.join(path.resolve(rootPath), AGENT_ID));
       expect(result.snapshot?.entries.find((entry) => entry.runtimeName === "alpha")?.state).toBe(
         "installed",
       );
@@ -325,7 +358,7 @@ describe("syncSkillsForRun and receipts", () => {
       });
 
       expect(
-        await fs.lstat(path.join(rootPath, ".agents", "skills", "alpha")).catch(() => null),
+        await fs.lstat(path.join(rootPath, AGENT_ID, ".agents", "skills", "alpha")).catch(() => null),
       ).toBeNull();
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
