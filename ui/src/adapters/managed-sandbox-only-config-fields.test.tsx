@@ -207,7 +207,8 @@ describe("adapter config fields under the managed-sandbox-only policy", () => {
     expect(choosePathButtons(result.container)).toHaveLength(0);
     // Non-path behavior toggles stay visible
     expect(labels).toContain("Execution mode");
-    expect(labels).toContain("Skills location");
+    expect(labels).toContain("Agent persona");
     expect(labels).toContain("Structured output schema");
+    expect(labels).not.toContain("Skills location");
   });
 });
