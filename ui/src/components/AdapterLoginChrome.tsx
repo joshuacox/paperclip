@@ -53,7 +53,6 @@ export const CONNECT_SOURCE_NAMES: Record<string, string> = {
   grok_local: "Grok",
   kimi_local: "Kimi",
   cursor: "Cursor",
-  cursor_cloud: "Cursor Cloud",
   opencode_local: "OpenCode",
   pi_local: "Pi",
   agy_local: "Antigravity",

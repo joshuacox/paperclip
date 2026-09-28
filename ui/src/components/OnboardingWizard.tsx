@@ -151,14 +151,17 @@ type AdapterType = string;
 // First-run onboarding stays on the proven direct adapters even when an
 // instance administrator has opted into Paperclip Runner elsewhere. The
 // experimental flag only exposes the runner in explicit agent configuration.
+// Remote cloud agents like cursor_cloud are also excluded: they require a
+// cloud repoUrl and workspace context that onboarding does not configure.
 const ONBOARDING_EXCLUDED_ADAPTER_TYPES = new Set([
   "process",
   "http",
   "paperclip_runner",
+  "cursor_cloud",
 ]);
 
 function restoreOnboardingAdapterType(savedAdapterType: unknown): AdapterType {
-  return typeof savedAdapterType === "string" && savedAdapterType !== "paperclip_runner"
+  return typeof savedAdapterType === "string" && !ONBOARDING_EXCLUDED_ADAPTER_TYPES.has(savedAdapterType)
     ? savedAdapterType
     : "claude_local";
 }
@@ -224,10 +227,6 @@ const MODEL_SOURCE_BRAND_MARKS: Record<string, { src: string; dark?: string }> =
     src: "/brands/adapters/cursor.svg",
     dark: "/brands/adapters/cursor-dark.svg",
   },
-  cursor_cloud: {
-    src: "/brands/adapters/cursor.svg",
-    dark: "/brands/adapters/cursor-dark.svg",
-  },
   grok_local: {
     src: "/brands/adapters/grok.svg",
     dark: "/brands/adapters/grok-dark.svg",
@@ -281,7 +280,6 @@ const API_KEY_ENV_KEYS: Record<string, string> = {
   grok_local: "XAI_API_KEY",
   kimi_local: "KIMI_MODEL_API_KEY",
   cursor: "CURSOR_API_KEY",
-  cursor_cloud: "CURSOR_API_KEY",
   opencode_local: "OPENROUTER_API_KEY",
   pi_local: "ANTHROPIC_API_KEY",
   agy_local: "GEMINI_API_KEY",

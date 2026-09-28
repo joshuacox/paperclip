@@ -293,6 +293,80 @@ describe("OnboardingWizard adapter selection", () => {
     });
   });
 
+  it("normalizes a saved cursor_cloud draft to claude_local", async () => {
+    mockAdapterRegistry.list = [
+      { type: "claude_local" },
+      { type: "codex_local" },
+      { type: "cursor_cloud" },
+    ];
+    window.localStorage.setItem(
+      ONBOARDING_STORAGE_KEY,
+      JSON.stringify({
+        step: 0,
+        adapterType: "cursor_cloud",
+      }),
+    );
+
+    const { root } = await mount();
+
+    const saved = JSON.parse(
+      window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? "{}",
+    );
+    expect(saved.adapterType).toBe("claude_local");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("excludes cursor_cloud from more harnesses even when registered", async () => {
+    mockAdapterRegistry.list = [
+      { type: "claude_local" },
+      { type: "codex_local" },
+      { type: "cursor" },
+      { type: "cursor_cloud" },
+    ];
+    const company = { id: "comp-1", name: "Acme", issuePrefix: "ACM" };
+    mockCompany.companies = [company];
+    mockCompaniesApi.list.mockResolvedValue([company]);
+    window.localStorage.setItem(
+      ONBOARDING_STORAGE_KEY,
+      JSON.stringify({
+        step: 4,
+        companyName: "Acme",
+        agentName: "Chief of Staff",
+        createdCompanyId: "comp-1",
+      }),
+    );
+
+    const { root } = await mount();
+
+    const toggleButton = Array.from(document.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("More harnesses"),
+    );
+    expect(toggleButton).toBeTruthy();
+    expect(toggleButton?.textContent).toContain("More harnesses (1)");
+
+    await act(async () => {
+      toggleButton?.click();
+    });
+    await flushReact();
+
+    const cursorButton = Array.from(document.querySelectorAll("button")).find(
+      (btn) => /cursor/i.test(btn.textContent ?? "") && !/cloud/i.test(btn.textContent ?? ""),
+    );
+    expect(cursorButton).toBeTruthy();
+
+    const cursorCloudButton = Array.from(document.querySelectorAll("button")).find(
+      (btn) => /cursor.*cloud/i.test(btn.textContent ?? ""),
+    );
+    expect(cursorCloudButton).toBeUndefined();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("does not replace a saved adapter before the registry has loaded", async () => {
     // External adapter types are only registered once the adapters query
     // resolves. Until then `listUIAdapters()` returns the built-ins alone, so
