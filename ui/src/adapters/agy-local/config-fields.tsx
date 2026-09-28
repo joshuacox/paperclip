@@ -223,33 +223,11 @@ export function AgyLocalConfigFields({
             : mark("adapterConfig", "sandbox", v ? true : undefined)
         }
       />
-      <Field
-        label="Skills location"
-        hint="Per-agent keeps each agent's skills in its own isolated directory, passed via --add-dir. Shared writes into agy's global skills directory (~/.gemini/config/skills)."
-      >
-        <select
-          className={inputClass}
-          value={
-            isCreate
-              ? (rawValues?.skillsScope as string | undefined) ?? "agent"
-              : eff("adapterConfig", "skillsScope", String(config.skillsScope ?? "agent"))
-          }
-          onChange={(e) => {
-            const val = e.target.value;
-            isCreate
-              ? set!({ skillsScope: val } as any)
-              : mark("adapterConfig", "skillsScope", val === "agent" ? undefined : val);
-          }}
-        >
-          <option value="agent">Per-agent (recommended) — Isolated skill root per agent</option>
-          <option value="global">Shared agy config — ~/.gemini/config/skills</option>
-        </select>
-      </Field>
       {!managedSandboxOnly && (
         <Field
           configSection="advanced"
           label="Per-agent skills root"
-          hint="Optional override for the directory holding this agent's skills (<root>/.agents/skills). Ignored when Skills location is set to shared."
+          hint="Optional override for the directory holding this agent's skills (<root>/.agents/skills). Defaults to ~/.agy-paperclip/agents/<agentId>."
         >
           <DraftInput
             value={

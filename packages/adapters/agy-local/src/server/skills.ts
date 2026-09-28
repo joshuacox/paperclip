@@ -55,19 +55,20 @@ export const AGY_GLOBAL_SKILLS_HOME_SEGMENTS = [".gemini", "config", "skills"] a
 /** Root for the per-agent skill trees this adapter owns. */
 export const AGY_AGENT_SKILL_ROOT_SEGMENTS = [".agy-paperclip", "agents"] as const;
 
-export type AgySkillScope = "agent" | "global";
+export type AgySkillScope = "agent";
 
 export interface AgySkillRoot {
   scope: AgySkillScope;
   /**
-   * Directory to pass to agy as an extra `--add-dir`, or null when the skills
-   * home is a root agy scans unconditionally.
+   * Directory to pass to agy as an extra `--add-dir`. Always non-null to guarantee
+   * agent and company isolation.
    */
-  addDir: string | null;
+  addDir: string;
   /** Directory holding `<runtimeName>/SKILL.md`. */
   skillsHome: string;
   /** Human-readable location for the Paperclip skills UI. */
   locationLabel: string;
+  warnings?: string[];
 }
 
 export interface ResolveAgySkillRootInput {
@@ -77,10 +78,8 @@ export interface ResolveAgySkillRootInput {
   homeDir?: string;
 }
 
-function normalizeScope(value: unknown): AgySkillScope {
-  return typeof value === "string" && value.trim().toLowerCase() === "global"
-    ? "global"
-    : "agent";
+function normalizeScope(_value: unknown): AgySkillScope {
+  return "agent";
 }
 
 /**
@@ -94,6 +93,7 @@ export function sanitizeAgentIdSegment(agentId: string): string {
 
 /**
  * Decide where this agent's skills live based on configuration and scope.
+ * Always resolves to an isolated per-agent directory to guarantee company boundaries.
  */
 export function resolveAgySkillRoot(input: ResolveAgySkillRootInput): AgySkillRoot {
   const { config } = input;
@@ -101,26 +101,25 @@ export function resolveAgySkillRoot(input: ResolveAgySkillRootInput): AgySkillRo
   const homeDir = input.homeDir ?? os.homedir();
   const scope = normalizeScope(config.skillsScope);
 
-  if (scope === "global") {
-    const skillsHome = path.join(homeDir, ...AGY_GLOBAL_SKILLS_HOME_SEGMENTS);
-    return {
-      scope,
-      addDir: null,
-      skillsHome,
-      locationLabel: skillsHome,
-    };
-  }
-
   const configuredRoot = asString(config.skillsRootPath, "").trim();
   const addDir = configuredRoot
     ? path.resolve(configuredRoot)
     : path.join(homeDir, ...AGY_AGENT_SKILL_ROOT_SEGMENTS, sanitizeAgentIdSegment(agentId));
+
+  const hasGlobalScope =
+    typeof config.skillsScope === "string" &&
+    config.skillsScope.trim().toLowerCase() === "global";
 
   return {
     scope,
     addDir,
     skillsHome: path.join(addDir, AGY_WORKSPACE_SKILL_SUBPATH),
     locationLabel: path.join(addDir, AGY_WORKSPACE_SKILL_SUBPATH),
+    warnings: hasGlobalScope
+      ? [
+          'skillsScope "global" is disabled to prevent cross-company skill leakage on shared hosts; using an isolated per-agent skill root instead.',
+        ]
+      : [],
   };
 }
 
@@ -132,11 +131,7 @@ export function resolveAgySkillsHome(
 }
 
 function warningsForRoot(root: AgySkillRoot): string[] {
-  if (root.scope !== "global") return [];
-  return [
-    'skillsScope is "global": every agy agent on this host shares ' +
-      `${root.skillsHome}, so skills synced for one agent are visible to all of them.`,
-  ];
+  return root.warnings ? [...root.warnings] : [];
 }
 
 function buildSnapshot(options: {
@@ -155,9 +150,7 @@ function buildSnapshot(options: {
     skillsHome: root.skillsHome,
     locationLabel: root.locationLabel,
     installedDetail:
-      root.scope === "global"
-        ? "Linked into agy's global skills directory."
-        : "Linked into this agent's agy skill root and passed to the run with --add-dir.",
+      "Linked into this agent's agy skill root and passed to the run with --add-dir.",
     missingDetail: "Not linked into an agy skills directory yet; run a skill sync.",
     externalConflictDetail:
       "A different skill directory already occupies this name in agy's skills directory. Paperclip will not overwrite it.",
@@ -257,11 +250,8 @@ export async function syncSkillsForRun(input: {
   const availableEntries = await readPaperclipRuntimeSkillEntries(config, __moduleDir);
   const desiredSkills = resolveLegacyPaperclipDesiredSkillNames(config, availableEntries);
 
-  if (root.scope === "global") {
-    return { root, snapshot: null, desiredSkills, warnings: [] };
-  }
   if (desiredSkills.length === 0 && availableEntries.length === 0) {
-    return { root, snapshot: null, desiredSkills, warnings: [] };
+    return { root, snapshot: null, desiredSkills, warnings: root.warnings ? [...root.warnings] : [] };
   }
 
   const snapshot = await syncAgySkills(
@@ -286,12 +276,6 @@ function shortVersion(versionId: string | null | undefined): string {
 export function describeRunSkillSync(sync: RunSkillSync): string[] {
   const { root, snapshot, desiredSkills } = sync;
 
-  if (root.scope === "global") {
-    return [
-      `${SKILL_SYNC_LOG_PREFIX} skipped — skillsScope is "global"; ${root.skillsHome} is ` +
-        "shared host-wide and is only reconciled by an explicit sync, never per run.",
-    ];
-  }
   if (!snapshot) {
     return [
       `${SKILL_SYNC_LOG_PREFIX} nothing to deliver — no skills are assigned to this agent. ` +

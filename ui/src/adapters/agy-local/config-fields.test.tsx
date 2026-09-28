@@ -133,29 +133,11 @@ describe("AgyLocalConfigFields", () => {
     expect(result.set).toHaveBeenCalledWith({ mode: "plan" });
   });
 
-  it("renders skills location and per-agent skills root fields", () => {
-    const html = renderAgyStatic({ skillsScope: "global", skillsRootPath: "/custom/skills" });
-    expect(html).toContain('<option value="agent">Per-agent (recommended) — Isolated skill root per agent</option>');
-    expect(html).toContain('<option value="global" selected="">Shared agy config — ~/.gemini/config/skills</option>');
+  it("renders per-agent skills root field and does not expose global skills location", () => {
+    const html = renderAgyStatic({ skillsRootPath: "/custom/skills" });
+    expect(html).not.toContain("~/.gemini/config/skills");
+    expect(html).not.toContain("Shared agy config");
     expect(html).toContain('value="/custom/skills"');
-  });
-
-  it("updates skillsScope on change in edit mode", () => {
-    const result = renderFields({
-      config: { skillsScope: "agent" },
-    });
-    roots.push(result.root);
-
-    const selects = result.container.querySelectorAll("select");
-    // Mode is first select, skillsScope is second select
-    const skillsSelect = selects[1];
-    expect(skillsSelect).not.toBeNull();
-
-    act(() => {
-      skillsSelect!.value = "global";
-      skillsSelect!.dispatchEvent(new Event("change", { bubbles: true }));
-    });
-    expect(result.mark).toHaveBeenCalledWith("adapterConfig", "skillsScope", "global");
   });
 
   it("filters fields by section", () => {
@@ -179,9 +161,10 @@ describe("AgyLocalConfigFields", () => {
       </TooltipProvider>,
     );
     expect(configHtml).toContain("Execution mode");
-    expect(configHtml).toContain("Skills location");
+    expect(configHtml).toContain("Agent persona");
     expect(configHtml).not.toContain("Structured output schema");
     expect(configHtml).not.toContain("Print timeout");
+    expect(configHtml).not.toContain("Per-agent skills root");
 
     const advancedHtml = renderToStaticMarkup(
       <TooltipProvider>
@@ -204,6 +187,7 @@ describe("AgyLocalConfigFields", () => {
     expect(advancedHtml).toContain("Structured output schema");
     expect(advancedHtml).toContain("Print timeout");
     expect(advancedHtml).toContain("Sandbox mode");
+    expect(advancedHtml).toContain("Per-agent skills root");
 
     const adapterHtml = renderToStaticMarkup(
       <TooltipProvider>

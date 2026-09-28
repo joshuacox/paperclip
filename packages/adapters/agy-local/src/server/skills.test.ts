@@ -60,22 +60,39 @@ describe("agy skills path resolution", () => {
     expect(root.skillsHome).toBe(path.join("/srv/agy-skills", ".agents", "skills"));
   });
 
-  it("global scope targets agy's config skills dir and needs no --add-dir", () => {
+  it("global scope falls back to per-agent scope with a warning to protect isolation", () => {
     const root = resolveAgySkillRoot({
-      config: { skillsScope: "global", skillsRootPath: "/ignored" },
+      config: { skillsScope: "global" },
       agentId: AGENT_ID,
       homeDir: "/home/u",
     });
-    expect(root.scope).toBe("global");
-    expect(root.skillsHome).toBe(path.join("/home/u", ".gemini", "config", "skills"));
-    expect(root.addDir).toBeNull();
+    expect(root.scope).toBe("agent");
+    expect(root.addDir).toBe(path.join("/home/u", ".agy-paperclip", "agents", AGENT_ID));
+    expect(root.skillsHome).toBe(
+      path.join("/home/u", ".agy-paperclip", "agents", AGENT_ID, ".agents", "skills"),
+    );
+    expect(root.warnings?.[0]).toMatch(/disabled to prevent cross-company skill leakage/);
   });
 
-  it("never resolves to ~/.gemini/skills, which agy does not scan", () => {
-    const dead = path.join("/home/u", ".gemini", "skills");
+  it("global scope honours an explicit skillsRootPath when provided", () => {
+    const root = resolveAgySkillRoot({
+      config: { skillsScope: "global", skillsRootPath: "/srv/agy-skills" },
+      agentId: AGENT_ID,
+      homeDir: "/home/u",
+    });
+    expect(root.scope).toBe("agent");
+    expect(root.addDir).toBe(path.resolve("/srv/agy-skills"));
+    expect(root.skillsHome).toBe(path.join("/srv/agy-skills", ".agents", "skills"));
+    expect(root.warnings?.[0]).toMatch(/disabled to prevent cross-company skill leakage/);
+  });
+
+  it("never resolves to ~/.gemini/skills or ~/.gemini/config/skills", () => {
+    const deadSkills = path.join("/home/u", ".gemini", "skills");
+    const sharedConfigSkills = path.join("/home/u", ".gemini", "config", "skills");
     for (const config of [{}, { skillsScope: "global" }, { skillsScope: "GLOBAL" }]) {
       const root = resolveAgySkillRoot({ config, agentId: AGENT_ID, homeDir: "/home/u" });
-      expect(root.skillsHome).not.toBe(dead);
+      expect(root.skillsHome).not.toBe(deadSkills);
+      expect(root.skillsHome).not.toBe(sharedConfigSkills);
     }
   });
 
@@ -238,14 +255,18 @@ describe("listSkills and syncSkills", () => {
     }
   });
 
-  it("global scope warns that the skills home is shared across agents", async () => {
+  it("global scope warns that global scope is disabled for isolation", async () => {
     const snapshot = await listSkills({
       agentId: AGENT_ID,
       companyId: "c1",
       adapterType: "agy_local",
       config: { skillsScope: "global", paperclipRuntimeSkills: [] },
     });
-    expect(snapshot.warnings.some((warning) => warning.includes("shares"))).toBe(true);
+    expect(
+      snapshot.warnings.some((warning) =>
+        warning.includes("disabled to prevent cross-company skill leakage"),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -311,10 +332,11 @@ describe("syncSkillsForRun and receipts", () => {
     }
   });
 
-  it("syncSkillsForRun leaves the shared global root untouched", async () => {
+  it("syncSkillsForRun with skillsScope global syncs to agent-isolated root and warns", async () => {
     const tmp = await makeTempDir();
     try {
       const alpha = await writeSkillSource(path.join(tmp, "src"), "alpha", "Alpha skill");
+      const rootPath = path.join(tmp, "root");
       const result = await syncSkillsForRun({
         agentId: AGENT_ID,
         companyId: "c1",
@@ -322,13 +344,20 @@ describe("syncSkillsForRun and receipts", () => {
           { "paperclipai/paperclip/alpha": alpha },
           {
             skillsScope: "global",
+            skillsRootPath: rootPath,
             paperclipSkillSync: { desiredSkills: ["paperclipai/paperclip/alpha"] },
           },
         ),
       });
 
-      expect(result.snapshot).toBeNull();
-      expect(result.root.scope).toBe("global");
+      expect(result.root.scope).toBe("agent");
+      expect(result.snapshot).not.toBeNull();
+      expect(
+        result.snapshot?.entries.find((entry) => entry.runtimeName === "alpha")?.state,
+      ).toBe("installed");
+      expect(
+        result.warnings.some((w) => w.includes("disabled to prevent cross-company skill leakage")),
+      ).toBe(true);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
@@ -402,15 +431,22 @@ describe("syncSkillsForRun and receipts", () => {
     expect(lines[0]).toMatch(/nothing to deliver — no skills are assigned to this agent/);
   });
 
-  it("describeRunSkillSync explains why global scope did not sync", () => {
+  it("describeRunSkillSync reports nothing to deliver when desiredSkills is empty even with skillsScope global", () => {
     const lines = describeRunSkillSync({
-      root: resolveAgySkillRoot({ config: { skillsScope: "global" }, agentId: AGENT_ID, homeDir: "/home/u" }),
+      root: resolveAgySkillRoot({
+        config: { skillsScope: "global" },
+        agentId: AGENT_ID,
+        homeDir: "/home/u",
+      }),
       snapshot: null,
-      desiredSkills: ["paperclipai/paperclip/alpha"],
+      desiredSkills: [],
       warnings: [],
     });
     expect(lines.length).toBe(1);
-    expect(lines[0]).toMatch(/skipped — skillsScope is "global"/);
+    expect(lines[0]).toMatch(/nothing to deliver — no skills are assigned to this agent/);
+    expect(lines[0]).toContain(
+      path.join("/home/u", ".agy-paperclip", "agents", AGENT_ID, ".agents", "skills"),
+    );
   });
 
   it("describeRunSkillSync flags a desired skill Paperclip never provided an entry for", async () => {

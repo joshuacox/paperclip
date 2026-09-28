@@ -205,8 +205,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   } else if (skillRoot.addDir && executionTargetIsRemote) {
     await onLog(
       "stdout",
-      `[paperclip] Skills synced to ${skillRoot.skillsHome} are not delivered to remote execution targets; ` +
-        `set skillsScope to "global" and provision ~/.gemini/config/skills in the target instead.\n`,
+      `[paperclip] Skills synced to ${skillRoot.skillsHome} are not delivered to remote execution targets.\n`,
     );
   }
 
