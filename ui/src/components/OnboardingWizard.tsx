@@ -1064,7 +1064,7 @@ function OnboardingWizardInner({
   });
   const authSignalStatus = authSignalQuery.data?.status ?? null;
   const credentialMode = credentialModeChoice ?? (
-    (savedKeys.subscriptions.length > 0 || (adapterType === "claude_local" && savedKeys.storedLogin.data) || (adapterType === "agy_local" && authSignalStatus === "present"))
+    (savedKeys.subscriptions.length > 0 || (adapterType === "claude_local" && savedKeys.storedLogin.data))
       ? "subscription" : savedKeys.options.length || adapterType === "opencode_local" ? "api" : "subscription"
   );
   const showAdapterLoginPanel =
@@ -2777,10 +2777,7 @@ function OnboardingWizardInner({
                         setSourcePicked(true);
                         setAdapterType(id);
                         if (id === "opencode_local") setModel(DEFAULT_OPENCODE_LOCAL_MODEL);
-                        else if (id === "agy_local") {
-                          setModel(DEFAULT_AGY_LOCAL_MODEL);
-                          setCredentialMode(null);
-                        }
+                        else if (id === "agy_local") setModel(DEFAULT_AGY_LOCAL_MODEL);
                         else if (id === "gemini_local") setModel(DEFAULT_GEMINI_LOCAL_MODEL);
                         else if (id === "kimi_local") setModel(DEFAULT_KIMI_LOCAL_MODEL);
                         else if (id === "cursor") setModel(DEFAULT_CURSOR_LOCAL_MODEL);
@@ -2849,10 +2846,7 @@ function OnboardingWizardInner({
                                     setSourcePicked(true);
                                     setAdapterType(opt.type);
                                     if (opt.type === "opencode_local") setModel(DEFAULT_OPENCODE_LOCAL_MODEL);
-                                    else if (opt.type === "agy_local") {
-                                      setModel(DEFAULT_AGY_LOCAL_MODEL);
-                                      setCredentialMode(null);
-                                    }
+                                    else if (opt.type === "agy_local") setModel(DEFAULT_AGY_LOCAL_MODEL);
                                     else if (opt.type === "gemini_local") setModel(DEFAULT_GEMINI_LOCAL_MODEL);
                                     else if (opt.type === "kimi_local") setModel(DEFAULT_KIMI_LOCAL_MODEL);
                                     else if (opt.type === "cursor") setModel(DEFAULT_CURSOR_LOCAL_MODEL);

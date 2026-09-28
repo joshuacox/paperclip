@@ -77,11 +77,19 @@ const mockAgentsApi = vi.hoisted(() => ({
   })),
 }));
 
+const mockSecretsApi = vi.hoisted(() => ({
+  list: vi.fn().mockResolvedValue([]),
+  listMyUserSecrets: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock("../api/companies", () => ({
   companiesApi: mockCompaniesApi,
 }));
 vi.mock("../api/agents", () => ({
   agentsApi: mockAgentsApi,
+}));
+vi.mock("../api/secrets", () => ({
+  secretsApi: mockSecretsApi,
 }));
 vi.mock("../adapters", () => ({
   listUIAdapters: () => mockAdapterRegistry.list,
@@ -167,6 +175,8 @@ describe("OnboardingWizard adapter selection", () => {
     mockAdapterRegistry.disabled = new Set<string>();
     mockAdapterRegistry.loaded = true;
     mockAgentsApi.getAdapterAuthSignal.mockResolvedValue({ status: "present" });
+    mockSecretsApi.list.mockResolvedValue([]);
+    mockSecretsApi.listMyUserSecrets.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -450,6 +460,67 @@ describe("OnboardingWizard adapter selection", () => {
     expect(document.body.textContent).toContain(
       "Antigravity is not signed in on this machine. Run agy in your terminal to sign in, or connect with an API key.",
     );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("defaults to saved API key for Antigravity when saved key exists even if host credentials are present", async () => {
+    mockAdapterRegistry.list = [
+      { type: "claude_local" },
+      { type: "codex_local" },
+      { type: "agy_local" },
+    ];
+    const company = { id: "comp-1", name: "Acme", issuePrefix: "ACM" };
+    mockCompany.companies = [company];
+    mockCompaniesApi.list.mockResolvedValue([company]);
+    mockAgentsApi.getAdapterAuthSignal.mockResolvedValue({ status: "present" });
+    mockSecretsApi.listMyUserSecrets.mockResolvedValue([
+      {
+        definition: { id: "saved-key-1", companyId: "comp-1", key: "GEMINI_API_KEY", name: "My Gemini Key", status: "active" },
+        secret: { companyId: "comp-1", status: "active" },
+      },
+    ]);
+    window.localStorage.setItem(
+      ONBOARDING_STORAGE_KEY,
+      JSON.stringify({
+        step: 4,
+        companyName: "Acme",
+        agentName: "Chief of Staff",
+        createdCompanyId: "comp-1",
+        adapterType: "agy_local",
+      }),
+    );
+
+    const { root } = await mount();
+
+    for (let i = 0; i < 5; i++) {
+      await flushReact();
+    }
+
+    // Should indicate that saved API key is available
+    expect(document.body.textContent).toContain("1 saved API key available.");
+
+    // Should not have auto-connected or hired
+    expect(mockAgentsApi.hire).not.toHaveBeenCalled();
+
+    // Click Antigravity tile to open the card
+    const agyButton = Array.from(document.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Antigravity") || btn.textContent?.includes("agy_local"),
+    );
+    expect(agyButton).toBeTruthy();
+
+    await act(async () => {
+      agyButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    for (let i = 0; i < 10; i++) {
+      await flushReact();
+    }
+
+    // The saved API key select dropdown should be rendered in the card
+    const keySelect = document.querySelector('select[aria-label="Saved API key"]');
+    expect(keySelect).toBeTruthy();
 
     await act(async () => {
       root.unmount();
