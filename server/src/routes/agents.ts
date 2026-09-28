@@ -3666,9 +3666,9 @@ export function agentRoutes(
     return readiness.ready ? "present" : "absent";
   }
 
-  // The agy_local branch of the auth-signal read. Checks GEMINI_API_KEY in the
-  // environment bindings for non-local environments, or evaluateAgyCredentialReadiness
-  // against host-local OAuth tokens / env keys for local environments.
+  // The agy_local branch of the auth-signal read. Checks GEMINI_API_KEY, AGY_API_KEY,
+  // or ANTIGRAVITY_API_KEY in the environment bindings for non-local environments,
+  // or evaluateAgyCredentialReadiness against host-local OAuth tokens / env keys for local environments.
   async function evaluateAgyAuthSignal(
     req: Request,
     companyId: string,
@@ -3682,14 +3682,23 @@ export function agentRoutes(
             ([key]) => !isForbiddenConfigEnvKey(key),
           ),
         );
-        const apiKeyBinding = environmentEnv.GEMINI_API_KEY;
-        if (apiKeyBinding !== undefined) {
+        const bindingsToResolve: Record<string, unknown> = {};
+        for (const key of ["GEMINI_API_KEY", "AGY_API_KEY", "ANTIGRAVITY_API_KEY"]) {
+          if (environmentEnv[key] !== undefined) {
+            bindingsToResolve[key] = environmentEnv[key];
+          }
+        }
+        if (Object.keys(bindingsToResolve).length > 0) {
           const resolution = await secretsSvc.resolveEnvBindings(
             companyId,
-            { GEMINI_API_KEY: apiKeyBinding },
+            bindingsToResolve,
             buildActorSecretContext(req, { consumerType: "environment", consumerId: environmentId }),
           );
-          if (asNonEmptyString(resolution.env.GEMINI_API_KEY)) {
+          if (
+            asNonEmptyString(resolution.env.GEMINI_API_KEY) ||
+            asNonEmptyString(resolution.env.AGY_API_KEY) ||
+            asNonEmptyString(resolution.env.ANTIGRAVITY_API_KEY)
+          ) {
             return "present";
           }
         }
