@@ -106,6 +106,16 @@ next question. Reduced-motion mode advances without animation.
 Multi-select and custom answers wait for Next, and the final page waits for
 Submit answers. The adjacent **Verified** story exercises the full flow.
 
+Use **Composer → Interaction above composer** to review the production
+pending-input layout. The stories cover questions, confirmations, checkbox
+choices, item verdicts, suggested tasks, tool reviews, runtime questions, and phone layouts with
+the bottom navigation. The normal message composer remains usable below the
+pending card.
+
+Use **Composer → Model and effort picker** to review harness-specific model
+choices. Codex uses the curated adapter catalog unless the instance declares
+`PAPERCLIP_ADAPTER_MODELS`; general OpenAI API models are not Codex choices.
+
 The Storybook visual regression suite uses external PNG baselines instead of
 committed screenshots:
 
@@ -1289,6 +1299,12 @@ Expected:
 - `/api/health` returns `{"status":"ok"}`
 - `/api/companies` returns a JSON array
 
+On `*.staging.paperclip.app`, the account menu shows the running server's
+short commit SHA below the user's email. Hover over it for the full SHA,
+or follow the link to inspect the commit on GitHub.
+Opening the menu refreshes `/api/health` so the label reflects recent deploys.
+The label is hidden on other hosts and when commit metadata is unavailable.
+
 ## Reset Local Dev Database
 
 To wipe local dev data and start fresh:
@@ -1625,3 +1641,16 @@ disconnected, visible active queries refresh every 15 seconds. This fallback
 stops when the socket opens, the tab is hidden, or the provider unmounts. A
 reconnected socket also refreshes visible queries to recover missed events.
 Run log views retain their existing HTTP polling fallback.
+
+### Company context during hot reload
+
+The company React context retains only its object identity in Vite's per-module
+`hot.data`. Provider values remain in the mounted React tree and keep their normal
+account scope. This lets a refreshed consumer read a provider from the preceding
+module version. Production builds do not use the development cache.
+
+Run `pnpm test:e2e:browser-context` to test this with real Vite modules and
+Chromium. The test starts its own loopback Vite server and mocks API responses;
+it needs no running Paperclip instance or provider credentials. The same spec lives
+in the default `test:e2e` discovery tree, so the existing Chrome CI shards run it
+on pull requests.
