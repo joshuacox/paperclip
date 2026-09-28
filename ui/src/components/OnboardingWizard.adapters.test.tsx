@@ -80,6 +80,22 @@ const mockAgentsApi = vi.hoisted(() => ({
 const mockSecretsApi = vi.hoisted(() => ({
   list: vi.fn().mockResolvedValue([]),
   listMyUserSecrets: vi.fn().mockResolvedValue([]),
+  createUserSecretDefinition: vi.fn().mockResolvedValue({ id: "def-1" }),
+  createMyUserSecret: vi.fn().mockResolvedValue({ id: "secret-1" }),
+  removeUserSecretDefinition: vi.fn().mockResolvedValue(undefined),
+}));
+
+const mockEnvironmentsApi = vi.hoisted(() => ({
+  list: vi.fn(async () => [] as Array<Record<string, unknown>>),
+  capabilities: vi.fn(
+    async (): Promise<import("@paperclipai/shared").EnvironmentCapabilities> =>
+      (await import("@paperclipai/shared")).getEnvironmentCapabilities([]),
+  ),
+}));
+
+const mockInstanceSettingsApi = vi.hoisted(() => ({
+  get: vi.fn(async () => ({ defaultEnvironmentId: null as string | null })),
+  getExperimental: vi.fn(async () => ({ enableManagedSandboxOnly: false })),
 }));
 
 vi.mock("../api/companies", () => ({
@@ -91,10 +107,25 @@ vi.mock("../api/agents", () => ({
 vi.mock("../api/secrets", () => ({
   secretsApi: mockSecretsApi,
 }));
-vi.mock("../adapters", () => ({
-  listUIAdapters: () => mockAdapterRegistry.list,
-  getUIAdapter: () => ({ buildAdapterConfig: () => ({}) }),
+vi.mock("../api/environments", () => ({
+  environmentsApi: mockEnvironmentsApi,
 }));
+vi.mock("../api/instanceSettings", () => ({
+  instanceSettingsApi: mockInstanceSettingsApi,
+}));
+vi.mock("../adapters", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../adapters")>();
+  return {
+    ...actual,
+    listUIAdapters: () => mockAdapterRegistry.list,
+    getUIAdapter: (type: string) => {
+      if (type === "hermes_local") {
+        return actual.getUIAdapter("hermes_local");
+      }
+      return { buildAdapterConfig: () => ({}) };
+    },
+  };
+});
 vi.mock("../adapters/metadata", () => ({ isVisualAdapterChoice: () => true }));
 vi.mock("../adapters/adapter-display-registry", () => ({
   getAdapterDisplay: (type: string) => ({
@@ -135,6 +166,15 @@ async function flushReact() {
     await Promise.resolve();
     await new Promise((resolve) => window.setTimeout(resolve, 0));
   });
+}
+
+function setControlledValue(el: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )!.set!;
+  setter.call(el, value);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 async function mount() {
@@ -595,6 +635,88 @@ describe("OnboardingWizard adapter selection", () => {
     // The saved API key select dropdown should be rendered in the card
     const keySelect = document.querySelector('select[aria-label="Saved API key"]');
     expect(keySelect).toBeTruthy();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("carries entered API key as OPENROUTER_API_KEY when hiring hermes_local", async () => {
+    mockAdapterRegistry.list = [
+      { type: "claude_local" },
+      { type: "codex_local" },
+      { type: "hermes_local" },
+    ];
+    const company = { id: "comp-1", name: "Acme", issuePrefix: "ACM" };
+    mockCompany.companies = [company];
+    mockCompaniesApi.list.mockResolvedValue([company]);
+    mockAgentsApi.getAdapterAuthSignal.mockResolvedValue({ status: "absent" });
+    mockSecretsApi.createUserSecretDefinition.mockResolvedValue({ id: "def-1" });
+    mockSecretsApi.createMyUserSecret.mockResolvedValue({ id: "secret-1" });
+    window.localStorage.setItem(
+      ONBOARDING_STORAGE_KEY,
+      JSON.stringify({
+        step: 4,
+        companyName: "Acme",
+        agentName: "Chief of Staff",
+        createdCompanyId: "comp-1",
+        adapterType: "hermes_local",
+      }),
+    );
+
+    const { root } = await mount();
+
+    for (let i = 0; i < 5; i++) {
+      await flushReact();
+    }
+
+    const hermesButton = Array.from(document.querySelectorAll("button")).find(
+      (btn) => /hermes/i.test(btn.textContent ?? ""),
+    );
+    expect(hermesButton).toBeTruthy();
+
+    await act(async () => {
+      hermesButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    for (let i = 0; i < 5; i++) {
+      await flushReact();
+    }
+
+    const apiKeyInput = document.querySelector('input[placeholder="Enter API key here"]') as HTMLInputElement;
+    expect(apiKeyInput).toBeTruthy();
+
+    await act(async () => {
+      setControlledValue(apiKeyInput, "sk-or-test-key-123");
+    });
+    for (let i = 0; i < 5; i++) {
+      await flushReact();
+    }
+
+    const hireButton = Array.from(document.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Hire") || btn.textContent?.includes("Connect"),
+    );
+    expect(hireButton).toBeTruthy();
+
+    await act(async () => {
+      hireButton!.click();
+    });
+    for (let i = 0; i < 10; i++) {
+      await flushReact();
+    }
+
+    expect(mockAgentsApi.hire).toHaveBeenCalledWith(
+      "comp-1",
+      expect.objectContaining({
+        adapterType: "hermes_local",
+        adapterConfig: expect.objectContaining({
+          env: expect.objectContaining({
+            OPENROUTER_API_KEY: expect.objectContaining({
+              type: "user_secret_ref",
+            }),
+          }),
+        }),
+      }),
+    );
 
     await act(async () => {
       root.unmount();

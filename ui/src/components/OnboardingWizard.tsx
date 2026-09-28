@@ -1063,7 +1063,7 @@ function OnboardingWizardInner({
   const authSignalStatus = authSignalQuery.data?.status ?? null;
   const credentialMode = credentialModeChoice ?? (
     (savedKeys.subscriptions.length > 0 || (adapterType === "claude_local" && savedKeys.storedLogin.data))
-      ? "subscription" : savedKeys.options.length || adapterType === "opencode_local" ? "api" : "subscription"
+      ? "subscription" : savedKeys.options.length || adapterType === "opencode_local" || adapterType === "hermes_local" ? "api" : "subscription"
   );
   const showAdapterLoginPanel =
     canShowAdapterLogin && (authSignalStatus === "absent" || authSignalStatus === "unknown");
@@ -1890,9 +1890,18 @@ function OnboardingWizardInner({
 
   function buildAdapterConfig(bindApiKey = false): Record<string, unknown> {
     const adapter = getUIAdapter(adapterType);
+    const activeApiKeyBinding =
+      !managedBindingForStep() && credentialMode === "api" && (bindApiKey || selectedApiKey)
+        ? selectedApiKey?.binding ?? apiKeySecretRef.current?.binding
+        : undefined;
+    const envBindings = activeApiKeyBinding
+      ? { [apiKeyEnvKeyFor(adapterType)]: activeApiKeyBinding }
+      : defaultCreateValues.envBindings;
+
     const config = adapter.buildAdapterConfig({
       ...defaultCreateValues,
       adapterType,
+      envBindings,
       model:
         adapterType === "agy_local"
           ? model || DEFAULT_AGY_LOCAL_MODEL
