@@ -44,6 +44,18 @@ import {
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
+export async function linkSkillDirectory(source: string, target: string): Promise<void> {
+  if (process.platform === "win32") {
+    try {
+      await fs.symlink(source, target, "junction");
+      return;
+    } catch {
+      // Fallback to default symlink if junction creation fails
+    }
+  }
+  await fs.symlink(source, target);
+}
+
 export const ADAPTER_TYPE = "agy_local";
 
 /** Path segment agy scans for skills beneath every `--add-dir` root. */
@@ -471,7 +483,7 @@ export async function syncAgySkills(
     }
     const target = path.join(root.skillsHome, entry.runtimeName);
     try {
-      const outcome = await ensurePaperclipSkillSymlink(entry.source, target);
+      const outcome = await ensurePaperclipSkillSymlink(entry.source, target, linkSkillDirectory);
       if (outcome === "skipped") {
         const existing = await fs.lstat(target).catch(() => null);
         if (existing && !existing.isSymbolicLink()) {

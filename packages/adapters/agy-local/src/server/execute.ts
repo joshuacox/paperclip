@@ -152,6 +152,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     asString((context.project as Record<string, unknown> | undefined)?.name, "").trim();
   const printTimeoutConfig = asString(config.printTimeout, "").trim();
   const disableSlashCommands = Boolean(config.disableSlashCommands);
+  const inputFormat = asString(config.inputFormat, "stream-json").trim().toLowerCase();
+  const useStreamJsonInput = inputFormat !== "text";
 
   const workspaceContext = parseObject(context.paperclipWorkspace);
   const workspaceCwd = asString(workspaceContext.cwd, "");
@@ -398,7 +400,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       "--output-format",
       "stream-json",
       "--input-format",
-      "text",
+      useStreamJsonInput ? "stream-json" : "text",
       "--add-dir",
       cwd,
     ];
@@ -467,7 +469,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (extraArgs.length > 0) {
       args.push(...extraArgs);
     }
-    args.push("--print", prompt);
+    if (!useStreamJsonInput) {
+      args.push("--print", prompt);
+    }
     return args;
   };
 
@@ -486,6 +490,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       });
     }
 
+    const stdin = useStreamJsonInput
+      ? JSON.stringify({ event: "user", message: { content: prompt } }) + "\n"
+      : undefined;
+
     const proc = await runAdapterExecutionTargetProcess(
       runId,
       runtimeExecutionTarget,
@@ -494,6 +502,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       {
         cwd,
         env: runtimeEnv,
+        stdin,
         timeoutSec,
         graceSec,
         onSpawn,

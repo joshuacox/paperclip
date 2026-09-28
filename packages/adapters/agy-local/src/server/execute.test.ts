@@ -516,6 +516,101 @@ describe("agy-local execute run outcome", () => {
     expect(result.errorCode).toBe("agy_auth_required");
     expect(result.errorMessage).toBe("not authenticated: please sign in");
   });
+
+  it("streams prompt via stdin NDJSON with --input-format stream-json by default, avoiding --print argv", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+    vi.mocked(runChildProcess).mockClear();
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-stream-json",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Test Agent",
+        adapterType: "agy_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: "/tmp/workspace",
+        },
+      },
+      onLog: async () => {},
+      onMeta: async (meta) => {
+        capturedMeta = meta;
+      },
+    };
+
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+
+    const commandArgs = capturedMeta!.commandArgs as string[];
+    expect(commandArgs).toContain("--input-format");
+    expect(commandArgs[commandArgs.indexOf("--input-format") + 1]).toBe("stream-json");
+    expect(commandArgs).not.toContain("--print");
+
+    const calls = vi.mocked(runChildProcess).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const lastCallOptions = calls[calls.length - 1][3] as { stdin?: string };
+    expect(lastCallOptions?.stdin).toBeDefined();
+    const parsedStdin = JSON.parse(lastCallOptions.stdin!.trim());
+    expect(parsedStdin.event).toBe("user");
+    expect(parsedStdin.message.content).toBeDefined();
+  });
+
+  it("falls back to --print argv when inputFormat is explicitly configured as text", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+    vi.mocked(runChildProcess).mockClear();
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-text-input",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Test Agent",
+        adapterType: "agy_local",
+        adapterConfig: {
+          inputFormat: "text",
+        },
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: "/tmp/workspace",
+        },
+      },
+      onLog: async () => {},
+      onMeta: async (meta) => {
+        capturedMeta = meta;
+      },
+    };
+
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+
+    const commandArgs = capturedMeta!.commandArgs as string[];
+    expect(commandArgs).toContain("--input-format");
+    expect(commandArgs[commandArgs.indexOf("--input-format") + 1]).toBe("text");
+    expect(commandArgs).toContain("--print");
+
+    const calls = vi.mocked(runChildProcess).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const lastCallOptions = calls[calls.length - 1][3] as { stdin?: string };
+    expect(lastCallOptions?.stdin).toBeUndefined();
+  });
 });
 
 describe("discoverAgySessionArtifacts", () => {
