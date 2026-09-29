@@ -1895,7 +1895,12 @@ function OnboardingWizardInner({
         ? selectedApiKey?.binding ?? apiKeySecretRef.current?.binding
         : undefined;
     const envBindings = activeApiKeyBinding
-      ? { [apiKeyEnvKeyFor(adapterType)]: activeApiKeyBinding }
+      ? {
+          [apiKeyEnvKeyFor(adapterType)]: activeApiKeyBinding,
+          ...(adapterType === "kimi_local"
+            ? { KIMI_MODEL_NAME: { type: "plain", value: model || DEFAULT_KIMI_LOCAL_MODEL } }
+            : {}),
+        }
       : defaultCreateValues.envBindings;
 
     const config = adapter.buildAdapterConfig({
@@ -1957,6 +1962,12 @@ function OnboardingWizardInner({
           ? { ...(config.env as Record<string, unknown>) }
           : {};
       env[apiKeyEnvKeyFor(adapterType)] = selectedApiKey?.binding ?? apiKeySecretRef.current?.binding;
+      if (adapterType === "kimi_local" && !env.KIMI_MODEL_NAME) {
+        env.KIMI_MODEL_NAME = {
+          type: "plain",
+          value: model || DEFAULT_KIMI_LOCAL_MODEL,
+        };
+      }
       config.env = env;
     }
     if (credentialMode === "subscription" && savedSubscription?.binding) {

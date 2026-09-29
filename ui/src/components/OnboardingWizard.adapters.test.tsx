@@ -722,4 +722,91 @@ describe("OnboardingWizard adapter selection", () => {
       root.unmount();
     });
   });
+
+  it("carries entered API key and model name when hiring kimi_local", async () => {
+    mockAdapterRegistry.list = [
+      { type: "claude_local" },
+      { type: "codex_local" },
+      { type: "kimi_local" },
+    ];
+    const company = { id: "comp-1", name: "Acme", issuePrefix: "ACM" };
+    mockCompany.companies = [company];
+    mockCompaniesApi.list.mockResolvedValue([company]);
+    mockAgentsApi.getAdapterAuthSignal.mockResolvedValue({ status: "absent" });
+    mockSecretsApi.createUserSecretDefinition.mockResolvedValue({ id: "def-1" });
+    mockSecretsApi.createMyUserSecret.mockResolvedValue({ id: "secret-1" });
+    window.localStorage.setItem(
+      ONBOARDING_STORAGE_KEY,
+      JSON.stringify({
+        step: 4,
+        companyName: "Acme",
+        agentName: "Chief of Staff",
+        createdCompanyId: "comp-1",
+        adapterType: "kimi_local",
+        credentialModeChoice: "api",
+      }),
+    );
+
+    const { root } = await mount();
+
+    for (let i = 0; i < 5; i++) {
+      await flushReact();
+    }
+
+    const kimiButton = Array.from(document.querySelectorAll("button")).find(
+      (btn) => /kimi/i.test(btn.textContent ?? ""),
+    );
+    expect(kimiButton).toBeTruthy();
+
+    await act(async () => {
+      kimiButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    for (let i = 0; i < 5; i++) {
+      await flushReact();
+    }
+
+    const apiKeyInput = document.querySelector('input[placeholder="Enter API key here"]') as HTMLInputElement;
+    expect(apiKeyInput).toBeTruthy();
+
+    await act(async () => {
+      setControlledValue(apiKeyInput, "kimi-test-key-123");
+    });
+    for (let i = 0; i < 5; i++) {
+      await flushReact();
+    }
+
+    const hireButton = Array.from(document.querySelectorAll("button")).find(
+      (btn) => btn.textContent?.includes("Hire") || btn.textContent?.includes("Connect"),
+    );
+    expect(hireButton).toBeTruthy();
+
+    await act(async () => {
+      hireButton!.click();
+    });
+    for (let i = 0; i < 10; i++) {
+      await flushReact();
+    }
+
+    expect(mockAgentsApi.hire).toHaveBeenCalledWith(
+      "comp-1",
+      expect.objectContaining({
+        adapterType: "kimi_local",
+        adapterConfig: expect.objectContaining({
+          env: expect.objectContaining({
+            KIMI_MODEL_API_KEY: expect.objectContaining({
+              type: "user_secret_ref",
+            }),
+            KIMI_MODEL_NAME: expect.objectContaining({
+              type: "plain",
+              value: "kimi-code/kimi-for-coding",
+            }),
+          }),
+        }),
+      }),
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
 });
