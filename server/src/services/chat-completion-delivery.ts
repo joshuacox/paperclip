@@ -25,11 +25,11 @@ export async function recordChatHandoff(tx: Connection, task: Issue, actorRunId:
   const sourceId = run?.nativeIssueId ?? run?.contextSnapshot?.issueId;
   if (typeof sourceId !== "string" || sourceId === task.id) return;
   const [source] = await tx.select().from(issues).where(and(eq(issues.id, sourceId), eq(issues.companyId, task.companyId)));
-  const sessionGeneration = run?.contextSnapshot?.conversationSessionGeneration ?? (run?.runtimeMode === "native" ? source?.conversationSessionGeneration : undefined);
-  if (!source?.conversationAgentId || source.conversationAgentId !== run.agentId ||
+  const sessionGeneration = run?.contextSnapshot?.conversationSessionGeneration;
+  if (typeof sessionGeneration !== "number" || !source?.conversationAgentId || source.conversationAgentId !== run.agentId ||
     source.conversationSessionGeneration !== sessionGeneration) return;
   await tx.insert(handoffs).values({ taskId: task.id, companyId: task.companyId,
-    conversationId: source.id, agentId: source.conversationAgentId, sessionGeneration: source.conversationSessionGeneration }).onConflictDoNothing();
+    conversationId: source.id, agentId: source.conversationAgentId, sessionGeneration }).onConflictDoNothing();
 }
 
 /** Must run on the same transaction as status projection (including native arbitration). */

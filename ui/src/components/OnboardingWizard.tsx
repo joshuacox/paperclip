@@ -1894,14 +1894,13 @@ function OnboardingWizardInner({
       !managedBindingForStep() && credentialMode === "api" && (bindApiKey || selectedApiKey)
         ? selectedApiKey?.binding ?? apiKeySecretRef.current?.binding
         : undefined;
-    const envBindings = activeApiKeyBinding
-      ? {
-          [apiKeyEnvKeyFor(adapterType)]: activeApiKeyBinding,
-          ...(adapterType === "kimi_local"
-            ? { KIMI_MODEL_NAME: { type: "plain", value: model || DEFAULT_KIMI_LOCAL_MODEL } }
-            : {}),
-        }
-      : defaultCreateValues.envBindings;
+    const envBindings = {
+      ...(defaultCreateValues.envBindings ?? {}),
+      ...(activeApiKeyBinding ? { [apiKeyEnvKeyFor(adapterType)]: activeApiKeyBinding } : {}),
+      ...(adapterType === "kimi_local"
+        ? { KIMI_MODEL_NAME: { type: "plain", value: model || DEFAULT_KIMI_LOCAL_MODEL } }
+        : {}),
+    };
 
     const config = adapter.buildAdapterConfig({
       ...defaultCreateValues,
@@ -1963,6 +1962,19 @@ function OnboardingWizardInner({
           : {};
       env[apiKeyEnvKeyFor(adapterType)] = selectedApiKey?.binding ?? apiKeySecretRef.current?.binding;
       if (adapterType === "kimi_local" && !env.KIMI_MODEL_NAME) {
+        env.KIMI_MODEL_NAME = {
+          type: "plain",
+          value: model || DEFAULT_KIMI_LOCAL_MODEL,
+        };
+      }
+      config.env = env;
+    }
+    if (adapterType === "kimi_local") {
+      const env =
+        typeof config.env === "object" && config.env !== null && !Array.isArray(config.env)
+          ? { ...(config.env as Record<string, unknown>) }
+          : {};
+      if (!env.KIMI_MODEL_NAME) {
         env.KIMI_MODEL_NAME = {
           type: "plain",
           value: model || DEFAULT_KIMI_LOCAL_MODEL,

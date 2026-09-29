@@ -258,6 +258,7 @@ const support = await getEmbeddedPostgresTestSupport();
       status: "running",
       runtimeMode: "native",
       nativeIssueId: f.sourceId,
+      contextSnapshot: { conversationSessionGeneration: 0 },
     });
     const delegatedTask = await issueService(db).create(f.companyId, {
       title: "Delegated child",
@@ -268,6 +269,27 @@ const support = await getEmbeddedPostgresTestSupport();
     expect(await db.select().from(handoffs).where(eq(handoffs.taskId, delegatedTask.id))).toMatchObject([
       { conversationId: f.sourceId, sessionGeneration: 0 },
     ]);
+  });
+  it("does not attribute native run tasks to a new session after reset", async () => {
+    const f = await seed();
+    const nativeRunId = randomUUID();
+    await db.insert(heartbeatRuns).values({
+      id: nativeRunId,
+      companyId: f.companyId,
+      agentId: f.agentId,
+      status: "running",
+      runtimeMode: "native",
+      nativeIssueId: f.sourceId,
+      contextSnapshot: { conversationSessionGeneration: 0 },
+    });
+    await db.update(issues).set({ conversationSessionGeneration: 1 }).where(eq(issues.id, f.sourceId));
+    const delegatedTask = await issueService(db).create(f.companyId, {
+      title: "Delegated child after reset",
+      status: "todo",
+      createdByAgentId: f.agentId,
+      originRunId: nativeRunId,
+    });
+    expect(await db.select().from(handoffs).where(eq(handoffs.taskId, delegatedTask.id))).toHaveLength(0);
   });
   it("caps completed onboarding children at 20 and records bounded overflow metadata", async () => {
     const f = await seed();
