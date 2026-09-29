@@ -47,9 +47,11 @@ jobs:
           version: 9.15.4
 
       - name: Install workspace dependencies
+        # Master owns the lockfile; PR verification can start before its refresh.
+        # Resolve like the normal PR jobs, but this narrow contract needs no
+        # dependency or workspace lifecycle scripts, including on the fast path.
         run: |
           if ! pnpm install --frozen-lockfile --ignore-scripts; then
-            echo '::notice title=Lockfile::checked-in lockfile is stale for this merge tree; resolving it inline'
             pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile
             pnpm install --frozen-lockfile --ignore-scripts
           fi

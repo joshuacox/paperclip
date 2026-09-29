@@ -1,3 +1,4 @@
+import { CHAT_COMPLETION_WAKE_REASON, prepareChatCompletionTurn, chatCompletionInstruction, isCompletedOnboardingHandoffWake } from "./chat-completion-delivery.js";
 import { isAgentDirectoryCopy } from "./agent-directory-working-copies.js";
 
 import type { PaperclipTurnContext } from "@paperclipai/adapter-utils/server-utils";
@@ -36,6 +37,7 @@ import { claimQueuedNativeReviewRun } from "./native-runtime/native-review-dispa
 import { buildNativeReviewRequest } from "./native-runtime/native-review-prompt.js";
 import {
   legacyExecutionNeedsReconciliation,
+  settleInterruptedNativeBootstrap,
   terminalizeLegacyExecution,
 } from "./legacy-execution-recovery.js";
 import {
@@ -324,6 +326,7 @@ import {
   emitAgentTaskRunById,
 } from "./agent-task-run-telemetry.js";
 import { reportRunFailure } from "./run-failure-report.js";
+import { collectRunFailureSecretValues, type RunFailureReportOptions } from "./run-failure-diagnostics.js";
 import { companySkillService } from "./company-skills.js";
 import { budgetService, type BudgetEnforcementScope } from "./budgets.js";
 import { secretService, type MissingRuntimeBinding } from "./secrets.js";
@@ -344,6 +347,7 @@ import {
   readCompletedAssistantMessageCandidate,
   resolveHeartbeatRunResponse,
   selectHeartbeatRunFinalAgentMessage,
+  summarizeRunErrorForModel,
   type RunPresentationDecision,
 } from "./heartbeat-run-summary.js";
 import {
@@ -1243,6 +1247,7 @@ function mergeAdapterRecoveryMetadata(input: {
   };
 }
 const RUNNING_ISSUE_WAKE_REASONS_REQUIRING_FOLLOWUP = new Set([
+  CHAT_COMPLETION_WAKE_REASON,
   "approval_approved",
   ISSUE_BLOCKERS_RESOLVED_WAKE_REASON,
   "issue_recovery_action_restored",
@@ -3434,6 +3439,18 @@ const heartbeatRunListResultColumns = {
   >`${heartbeatRuns.resultJson} ->> 'costUsd'`.as("resultCostUsdCamel"),
 } as const;
 
+// Reserve at most 9 KiB for diagnostics in the reduced result. An oversized
+// multibyte field uses a conservative four-byte-per-character prefix, with a
+// visible pointer to the full (adapter-bounded) run error and transcript.
+const diagnosticRetrievalTitleBytes = 1024;
+const diagnosticRetrievalDetailsBytes = 8192;
+function boundedRunDiagnosticText(field: "title" | "details", maxBytes: number) {
+  const value = sql`${heartbeatRuns.resultJson} #>> ARRAY['terminalSessionFailure', ${field}]`;
+  return sql`case when octet_length(${value}) <= ${maxBytes} then ${value}
+    else left(${value}, ${Math.floor((maxBytes - 100) / 4)})
+      || E'\\n[truncated for run retrieval; full text in run error/transcript]' end`;
+}
+
 const heartbeatRunSafeResultJsonColumn = sql<Record<string, unknown> | null>`
   case
     when ${heartbeatRuns.resultJson} is null then null
@@ -3447,6 +3464,19 @@ const heartbeatRunSafeResultJsonColumn = sql<Record<string, unknown> | null>`
         'error', left(${heartbeatRuns.resultJson} ->> 'error', ${HEARTBEAT_RUN_RESULT_SUMMARY_MAX_CHARS}),
         'stdout', left(${heartbeatRuns.resultJson} ->> 'stdout', ${HEARTBEAT_RUN_RESULT_OUTPUT_MAX_CHARS}),
         'stderr', left(${heartbeatRuns.resultJson} ->> 'stderr', ${HEARTBEAT_RUN_RESULT_OUTPUT_MAX_CHARS}),
+        'terminalSessionFailure', case when jsonb_typeof(${heartbeatRuns.resultJson} -> 'terminalSessionFailure') = 'object'
+          then jsonb_strip_nulls(jsonb_build_object(
+            'category', left(${heartbeatRuns.resultJson} #>> '{terminalSessionFailure,category}', 32),
+            'title', ${boundedRunDiagnosticText("title", diagnosticRetrievalTitleBytes)},
+            'details', ${boundedRunDiagnosticText("details", diagnosticRetrievalDetailsBytes)},
+            'retrievalTruncated', case when
+              octet_length(${heartbeatRuns.resultJson} #>> '{terminalSessionFailure,title}') > ${diagnosticRetrievalTitleBytes}
+              or octet_length(${heartbeatRuns.resultJson} #>> '{terminalSessionFailure,details}') > ${diagnosticRetrievalDetailsBytes}
+              then to_jsonb(true) end,
+            'truncatedFields', case when ${heartbeatRuns.resultJson} #> '{terminalSessionFailure,truncatedFields}'
+              in ('["title"]'::jsonb, '["details"]'::jsonb, '["title","details"]'::jsonb)
+              then ${heartbeatRuns.resultJson} #> '{terminalSessionFailure,truncatedFields}' end
+          )) end,
         'instructionSave', case when jsonb_typeof(${heartbeatRuns.resultJson} -> 'instructionSave') = 'object'
           then jsonb_strip_nulls(jsonb_build_object(
             'state', left(${heartbeatRuns.resultJson} #>> '{instructionSave,state}', 32),
@@ -4537,9 +4567,6 @@ export async function buildPaperclipRuntimeMcpServers(input: {
   agent: Pick<typeof agents.$inferSelect, "id" | "companyId" | "name">;
   runId: string;
   expectedAssignmentDigest?: string | null;
-  onUnavailableAssignedConnections?: (
-    connections: Array<{ id: string; name: string }>,
-  ) => void | Promise<void>;
 }): Promise<AdapterRuntimeMcpServer[]> {
   const access = toolAccessService(input.db);
   const effective = await access.getEffectiveProfilesForAgent(
@@ -4612,38 +4639,11 @@ export async function buildPaperclipRuntimeMcpServers(input: {
       ((Boolean(runIdentity?.activeIdentityContextId) &&
         (connection.config?.sourceTemplateKey === "github" ||
           connection.transportConfig?.sourceTemplateKey === "github")) ||
+        connection.credentialPolicy === "per_user" ||
         !isToolConnectionAttentionHealth(connection.healthStatus)) &&
       (connection.transport === "mcp_remote" ||
         connection.transport === "local_stdio" || githubBotConnectionIds.has(connection.id)),
   );
-  const unhealthyConnections = resolvedInstalledConnections.filter(
-    (connection) =>
-      permittedConnectionIds.has(connection.id) &&
-      (connection.transport === "mcp_remote" ||
-        connection.transport === "local_stdio") &&
-      (!connection.enabled ||
-        connection.status !== "active" ||
-        isToolConnectionAttentionHealth(connection.healthStatus)),
-  );
-  if (unhealthyConnections.length && input.onUnavailableAssignedConnections) {
-    try {
-      await input.onUnavailableAssignedConnections(
-        unhealthyConnections
-          .map(({ id, name }) => ({ id, name }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
-      );
-    } catch (error) {
-      logger.warn(
-        {
-          companyId: input.agent.companyId,
-          agentId: input.agent.id,
-          runId: input.runId,
-          err: error,
-        },
-        "failed to report unavailable runtime MCP connections",
-      );
-    }
-  }
   const assignedConnectionIds = new Set(
     assignedConnections.map((connection) => connection.id),
   );
@@ -7001,6 +7001,7 @@ export function shouldQueueFollowupForRunningIssueWake(input: {
     return true;
   }
   const wakeReason = readNonEmptyString(input.contextSnapshot?.wakeReason);
+  if (wakeReason === "issue_children_completed" && input.contextSnapshot?.onboardingCompletion === true) return true;
   return Boolean(
     wakeReason && RUNNING_ISSUE_WAKE_REASONS_REQUIRING_FOLLOWUP.has(wakeReason),
   );
@@ -8074,6 +8075,7 @@ export async function buildPaperclipWakePayload(input: {
   const payload = {
     reason: readNonEmptyString(input.contextSnapshot.wakeReason),
     executionContinuation: input.contextSnapshot.executionContinuation ?? null,
+    chatCompletionUpdates: input.contextSnapshot.chatCompletionUpdates ?? null,
     attachmentOmissions,
     externalChatProvider,
     recovery:
@@ -12056,6 +12058,9 @@ export function heartbeatService(
         createdAt: heartbeatRuns.createdAt,
         usageJson: heartbeatRuns.usageJson,
         error: heartbeatRuns.error,
+        terminalFailureCategory: sql<string | null>`case
+          when jsonb_typeof(${heartbeatRuns.resultJson} -> 'terminalSessionFailure') = 'object'
+          then coalesce(left(${heartbeatRuns.resultJson} #>> '{terminalSessionFailure,category}', 32), 'unknown') end`,
         ...heartbeatRunListResultColumns,
       })
       .from(heartbeatRuns)
@@ -12133,7 +12138,7 @@ export function heartbeatService(
       readNonEmptyString(latestSummary?.summary) ??
       readNonEmptyString(latestSummary?.result) ??
       readNonEmptyString(latestSummary?.message) ??
-      readNonEmptyString(latestRun.error);
+      readNonEmptyString(summarizeRunErrorForModel(latestRun.error, latestRun.terminalFailureCategory));
 
     const handoffMarkdown = [
       "Paperclip session handoff:",
@@ -12750,12 +12755,13 @@ export function heartbeatService(
   function emitTerminalAgentTaskRun(
     updated: typeof heartbeatRuns.$inferSelect,
     previousStatus: string | null,
+    failureReport?: RunFailureReportOptions,
   ) {
     if (!isHeartbeatRunTerminalStatus(updated.status)) return;
     if (previousStatus === updated.status) return;
     clearHeartbeatRunRuntimeStatus(updated.id);
     void emitAgentTaskRun(db, updated);
-    void reportRunFailure(db, updated);
+    void reportRunFailure(db, updated, failureReport);
   }
 
   async function setRunStatus(
@@ -12829,8 +12835,9 @@ export function heartbeatService(
     runId: string,
     status: string,
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
+    failureReport?: RunFailureReportOptions,
   ) {
-    return setRunStatusFromLive(runId, status, ["running"], patch);
+    return setRunStatusFromLive(runId, status, ["running"], patch, failureReport);
   }
 
   // Move a run to a new status only when its current status is one of
@@ -12843,6 +12850,7 @@ export function heartbeatService(
     status: string,
     fromStatuses: string[],
     patch?: Partial<typeof heartbeatRuns.$inferInsert>,
+    failureReport?: RunFailureReportOptions,
   ) {
     // fromStatuses can name a terminal status as its own source (for example,
     // an idempotent "still failed" patch), so the write below is not always a
@@ -12912,7 +12920,7 @@ export function heartbeatService(
         payload: buildHeartbeatRunStatusLiveEventPayload(updated),
       });
       publishRunLifecyclePluginEvent(updated);
-      emitTerminalAgentTaskRun(updated, previousStatus?.status ?? null);
+      emitTerminalAgentTaskRun(updated, previousStatus?.status ?? null, failureReport);
       return { run: updated, updated: true as const };
     }
 
@@ -14381,6 +14389,10 @@ export function heartbeatService(
     agent: typeof agents.$inferSelect,
     now: Date,
   ) {
+    // Completion deliveries own their durable bounded retry and reply identity.
+    // A second process-loss retry would compete for the same outbox input.
+    if (run.contextSnapshot?.wakeReason === CHAT_COMPLETION_WAKE_REASON &&
+        Array.isArray(run.contextSnapshot?.chatCompletionDeliveryIds)) return null;
     // Native sessions have their own fenced same-run controller. Legacy
     // bootstrap recovery shares the durable delay and incident counter with
     // transient retries; process loss must not open a second retry budget.
@@ -15263,6 +15275,11 @@ export function heartbeatService(
       delayMs?: number;
     },
   ) {
+    if (Array.isArray(run.contextSnapshot?.chatCompletionDeliveryIds) &&
+        run.contextSnapshot.chatCompletionDeliveryIds.some(id => typeof id === "string")) {
+      return { outcome: "not_scheduled" as const, reason: "The completion outbox owns this reply's retry budget and publication identity.",
+        errorCode: "chat_completion_outbox_owns_retry" as const, issueId: readNonEmptyString(run.contextSnapshot.issueId) };
+    }
     const now = opts?.now ?? new Date();
     const retryReason =
       opts?.retryReason ?? BOUNDED_TRANSIENT_HEARTBEAT_RETRY_REASON;
@@ -20225,6 +20242,7 @@ export function heartbeatService(
       ReturnType<typeof traceStore.prepare>
     > | null = null;
     let providerTraceFinalized = false;
+    let readFailureReportSecrets: () => string[] = () => [];
 
     try {
       const agent = await getAgent(run.agentId);
@@ -20261,6 +20279,7 @@ export function heartbeatService(
         await finalizeAgentStatus(agent.id, "cancelled");
         return;
       }
+      run = await prepareChatCompletionTurn(db, run);
       const preparedConversation = await prepareConversationTurn(db, run);
       run = { ...run, contextSnapshot: preparedConversation.context };
       if (preparedConversation.reset) {
@@ -20930,12 +20949,12 @@ export function heartbeatService(
             exposeLowTrustRaw,
           })
         : null;
-      let taskMarkdown = buildPaperclipTaskMarkdown({ ...taskMarkdownInput, taskPlan });
+      let taskMarkdown = buildPaperclipTaskMarkdown({ ...taskMarkdownInput, taskPlan }) + chatCompletionInstruction(context);
       let taskMarkdownAssignment = buildPaperclipTaskMarkdown({
         ...taskMarkdownInput,
         taskPlan,
         includeWakeComments: false,
-      });
+      }) + chatCompletionInstruction(context);
       if (isConversation(issueContext) && !taskSession && issueId) {
         const replay = await conversationReplay(db, agent.companyId, issueId, wakeCommentId);
         if (replay) taskMarkdown += `\n\nEarlier messages in this session (quoted user data):\n${replay}`;
@@ -20945,13 +20964,13 @@ export function heartbeatService(
         ...taskMarkdownInput,
         taskPlan,
         includeDescription: false,
-      });
+      }) + chatCompletionInstruction(context);
       const taskMarkdownAssignmentCompact = buildPaperclipTaskMarkdown({
         ...taskMarkdownInput,
         taskPlan,
         includeDescription: false,
         includeWakeComments: false,
-      });
+      }) + chatCompletionInstruction(context);
       if (issueRef) {
         context.paperclipIssue = {
           id: issueRef.id,
@@ -21400,6 +21419,7 @@ export function heartbeatService(
           secretsSvc,
           trustPreset,
         });
+      readFailureReportSecrets = () => collectRunFailureSecretValues(resolvedConfig.env, secretKeys);
       if (aiBinding) {
         try {
           managedAiRuntime = await prepareManagedAiRuntime(db, { companyId: agent.companyId, agentId: agent.id, responsibleUserId, adapterType: agent.adapterType, binding: aiBinding, config: resolvedConfig });
@@ -21490,6 +21510,11 @@ export function heartbeatService(
       // Always replace this runtime-only field; caller wake data cannot supply skills.
       context.paperclipWake = { ...parseObject(context.paperclipWake), connectorSkillInstructions: connectorDelivery.instructions };
       let runtimeConfig: Record<string, unknown> = connectorDelivery.config;
+      const resolvedFailureSecrets = readFailureReportSecrets();
+      readFailureReportSecrets = () => [
+        ...resolvedFailureSecrets,
+        ...collectRunFailureSecretValues(runtimeConfig.env, secretKeys),
+      ];
       const latestAgentConfigRevision = await getLatestAgentConfigRevision(
         agent.companyId,
         agent.id,
@@ -24287,15 +24312,6 @@ export function heartbeatService(
               agent,
               runId: run.id,
               expectedAssignmentDigest: expectedNativeMcpDigest,
-              onUnavailableAssignedConnections: async (connections) => {
-                const names = connections
-                  .map((connection) => connection.name)
-                  .join(", ");
-                await onLog(
-                  "stderr",
-                  `[paperclip] App connection${connections.length === 1 ? "" : "s"} unavailable: ${names}. Continuing this run without ${connections.length === 1 ? "it" : "them"}; reconnect from Apps to restore access.\n`,
-                );
-              },
             });
             if ("runtimeContext" in nativeExecution) {
               if (nativeMcpServers.length > 1)
@@ -25186,6 +25202,7 @@ export function heartbeatService(
           run.id,
           status,
           finalRunPatch,
+          { adapterErrorMeta: adapterResult.errorMeta, secretValues: readFailureReportSecrets() },
         );
         let persistedRun: typeof heartbeatRuns.$inferSelect | null =
           persistedRunWrite.run;
@@ -25359,7 +25376,7 @@ export function heartbeatService(
                 issueId,
                 resolved.text,
                 { agentId: agent.id, runId: livenessRun.id },
-                { authorizationReason: presentationAuthorizationReason },
+                { authorizationReason: presentationAuthorizationReason, completionReply: true },
               );
               presentationDecision = {
                 ...presentationDecision,
@@ -25825,7 +25842,7 @@ export function heartbeatService(
           logBytes: logSummary?.bytes,
           logSha256: logSummary?.sha256,
           logCompressed: logSummary?.compressed ?? false,
-        });
+        }, { error: err, phase: "execute", secretValues: readFailureReportSecrets() });
         if (
           !failedRunWrite.updated &&
           !(
@@ -26079,7 +26096,7 @@ export function heartbeatService(
             : setupFailureResultJson
               ? { resultJson: setupFailureResultJson }
               : {}),
-        }).catch(() => ({ run: null, updated: false as const }));
+        }, { error: outerErr, phase: "setup", secretValues: readFailureReportSecrets() }).catch(() => ({ run: null, updated: false as const }));
         if (!setupFailureWrite.updated) {
           logger.info(
             {
@@ -26359,6 +26376,11 @@ export function heartbeatService(
             });
           }
         }
+        if (latestRun?.status === "interrupted" && latestRun.errorCode === "server_shutdown_interrupted") {
+          latestRun = await settleInterruptedNativeBootstrap(db, { run: latestRun,
+            providerDispatchStarted: legacyAdapterEntered || nativeDispatchStarted || nativeOwnershipHeld,
+          }) ?? latestRun;
+        }
         if (latestRun?.status === "cancelled" && !nativeDispatchStarted && !nativeOwnershipHeld &&
             (latestRun.runtimeMode === "native" ||
               parseObject(latestRun.resultJson?.startupCancellation).beforeNativeSelection === true)) {
@@ -26490,8 +26512,12 @@ export function heartbeatService(
 
     let agent = await getAgent(agentId);
     if (!agent) throw notFound("Agent not found");
+    // Mentions only annotate comments. Ignore legacy callers before creating
+    // a run or deferred request; assignment and review have their own wakes.
+    if (reason === "issue_comment_mentioned" || enrichedContextSnapshot.wakeReason === "issue_comment_mentioned") return null;
     if (issueId) {
       const conversation = await getIssueExecutionContext(agent.companyId, issueId);
+      if (reason === "issue_children_completed" && conversation?.originKind === "onboarding_first_task") enrichedContextSnapshot.onboardingCompletion = true;
       if (isConversation(conversation)) {
         if (opts.manualUserWake && conversation!.conversationUserId !== opts.requestedByActorId) {
           throw new HttpError(403, "Only the conversation owner can start a chat run");
@@ -26499,7 +26525,7 @@ export function heartbeatService(
         if (isConversationExecutionWake(conversation, reason ?? readNonEmptyString(enrichedContextSnapshot.wakeReason))) return null;
         if (agent.id !== conversation!.conversationAgentId) return null;
         if (!(await instanceSettings.getExperimental()).enableAgentChat) return null;
-        if (!wakeCommentId && isWaitingConversation(conversation) && !hasInteractionContinuationWakeContext(enrichedContextSnapshot)) return null;
+        if (!wakeCommentId && isWaitingConversation(conversation) && !hasInteractionContinuationWakeContext(enrichedContextSnapshot) && reason !== CHAT_COMPLETION_WAKE_REASON) return null;
       }
     }
     if (agent.adapterType === "paperclip_runner") {
@@ -28772,10 +28798,12 @@ export function heartbeatService(
         continue;
       }
 
+      let completedOnboardingGuard: WakeupOptions["issueStateGuard"];
       if (issueId) {
         const targetIssue = await db
           .select({
             status: issues.status,
+            statusVersion: issues.statusVersion,
             assigneeAgentId: issues.assigneeAgentId,
           })
           .from(issues)
@@ -28793,9 +28821,14 @@ export function heartbeatService(
               contextSnapshot: wakeContext,
             })
           : null;
+        const onboardingResultReport = targetIssue?.status === "done" && await isCompletedOnboardingHandoffWake(db, {
+          companyId: candidate.companyId, issueId, agentId: candidate.agentId,
+          reason: candidate.reason, contextSnapshot: wakeContext,
+        });
+        if (onboardingResultReport) completedOnboardingGuard = { assigneeAgentId: candidate.agentId, statuses: ["done"], statusVersion: targetIssue!.statusVersion };
         if (
           !targetIssue ||
-          ["done", "cancelled"].includes(targetIssue.status) ||
+          (["done", "cancelled"].includes(targetIssue.status) && !onboardingResultReport) ||
           (targetIssue.assigneeAgentId !== candidate.agentId && !nativeReview) ||
           (candidate.reason === "native_completion_review" && !nativeReview)
         ) {
@@ -28827,6 +28860,7 @@ export function heartbeatService(
           idempotencyKey: candidate.idempotencyKey,
           requestedByActorType: "system",
           requestedByActorId: dispatchActorId,
+          ...(completedOnboardingGuard ? { issueStateGuard: completedOnboardingGuard } : {}),
           contextSnapshot: {
             ...wakeContext,
             ...(issueId ? { issueId, taskId: issueId } : {}),

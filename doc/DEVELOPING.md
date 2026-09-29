@@ -117,6 +117,17 @@ choices. Codex uses the curated adapter catalog unless the instance declares
 `PAPERCLIP_ADAPTER_MODELS`; general OpenAI API models are not Codex choices.
 The Paperclip Runner Codex profile shows the same known model effort levels.
 Its selected effort is saved with the run and sent to Codex for each turn.
+Claude Code uses model-specific effort levels; Haiku has no effort slider.
+Grok uses its adapter's reasoning levels, including for its default model.
+Kimi shows effort only when its agent uses the CLI engine, including with its
+default model, because the default ACP engine ignores effort.
+
+Mobile entity picker sheets use a modal popover so touch scrolling stays inside
+the sheet even when it is portalled outside the new-task dialog. Run
+`pnpm exec playwright test --config tests/e2e/playwright.config.ts tests/e2e/new-task-picker-touch.spec.ts`
+to verify native touch scrolling and selection in both assignee and model lists.
+The test uses a fixed model catalog and a reduced viewport to cover limited
+space while the phone keyboard is open; it does not require a provider login.
 
 The Storybook visual regression suite uses external PNG baselines instead of
 committed screenshots:
