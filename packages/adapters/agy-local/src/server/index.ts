@@ -10,6 +10,7 @@ export {
   resolveAgySkillsHome,
   syncSkillsForRun,
   describeRunSkillSync,
+  migrateLegacySkills,
   sanitizeAgentIdSegment,
   AGY_WORKSPACE_SKILL_SUBPATH,
   AGY_GLOBAL_SKILLS_HOME_SEGMENTS,

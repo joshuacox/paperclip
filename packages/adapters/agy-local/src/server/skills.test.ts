@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   AGY_WORKSPACE_SKILL_SUBPATH,
   listSkills,
+  migrateLegacySkills,
   resolveAgySkillRoot,
   sanitizeAgentIdSegment,
   syncSkills,
@@ -89,6 +90,35 @@ describe("agy skills path resolution", () => {
     expect(root1.skillsHome).not.toBe(root2.skillsHome);
     expect(root1.addDir).toBe(path.join(path.resolve("/srv/agy-skills"), AGENT_ID));
     expect(root2.addDir).toBe(path.join(path.resolve("/srv/agy-skills"), otherAgentId));
+  });
+
+  it("records legacySkillsHome when skillsRootPath is set without agentId segment", () => {
+    const root = resolveAgySkillRoot({
+      config: { skillsRootPath: "/srv/agy-skills" },
+      agentId: AGENT_ID,
+      homeDir: "/home/u",
+    });
+    expect(root.legacySkillsHome).toBe(
+      path.join(path.resolve("/srv/agy-skills"), ".agents", "skills"),
+    );
+  });
+
+  it("does not set legacySkillsHome when skillsRootPath already ends with agentId segment", () => {
+    const root = resolveAgySkillRoot({
+      config: { skillsRootPath: path.join("/srv/agy-skills", AGENT_ID) },
+      agentId: AGENT_ID,
+      homeDir: "/home/u",
+    });
+    expect(root.legacySkillsHome).toBeUndefined();
+  });
+
+  it("does not set legacySkillsHome when skillsRootPath is not configured", () => {
+    const root = resolveAgySkillRoot({
+      config: {},
+      agentId: AGENT_ID,
+      homeDir: "/home/u",
+    });
+    expect(root.legacySkillsHome).toBeUndefined();
   });
 
   it("global scope falls back to per-agent scope with a warning to protect isolation", () => {
@@ -301,6 +331,77 @@ describe("listSkills and syncSkills", () => {
       ),
     ).toBe(true);
   });
+
+  it("listSkills migrates existing custom skills from legacy un-scoped root to agent-specific root", async () => {
+    const tmp = await makeTempDir();
+    try {
+      const rootPath = path.join(tmp, "custom-root");
+      const legacySkillsDir = path.join(rootPath, ".agents", "skills");
+      await writeSkillSource(legacySkillsDir, "custom-legacy", "Legacy operator skill");
+
+      const config = {
+        skillsRootPath: rootPath,
+      };
+
+      const snapshot = await listSkills({
+        agentId: AGENT_ID,
+        companyId: "c1",
+        adapterType: "agy_local",
+        config,
+      });
+
+      const newSkillsHome = path.join(rootPath, AGENT_ID, ".agents", "skills");
+      expect(
+        await fs.readFile(path.join(newSkillsHome, "custom-legacy", "SKILL.md"), "utf8"),
+      ).toMatch(/Legacy operator skill/);
+      expect(await fs.lstat(path.join(legacySkillsDir, "custom-legacy")).catch(() => null)).toBeNull();
+
+      const customEntry = snapshot.entries.find((entry) => entry.runtimeName === "custom-legacy");
+      expect(customEntry?.state).toBe("external");
+      expect(customEntry?.managed).toBe(false);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("syncSkills migrates existing custom skills and preserves them alongside synced skills", async () => {
+    const tmp = await makeTempDir();
+    try {
+      const alpha = await writeSkillSource(path.join(tmp, "src"), "alpha", "Alpha skill");
+      const rootPath = path.join(tmp, "custom-root");
+      const legacySkillsDir = path.join(rootPath, ".agents", "skills");
+      await writeSkillSource(legacySkillsDir, "custom-legacy", "Legacy operator skill");
+
+      const config = skillConfig(
+        { "paperclipai/paperclip/alpha": alpha },
+        { skillsRootPath: rootPath },
+      );
+
+      const snapshot = await syncSkills(
+        { agentId: AGENT_ID, companyId: "c1", adapterType: "agy_local", config },
+        ["paperclipai/paperclip/alpha"],
+      );
+
+      const newSkillsHome = path.join(rootPath, AGENT_ID, ".agents", "skills");
+      expect(
+        await fs.readFile(path.join(newSkillsHome, "custom-legacy", "SKILL.md"), "utf8"),
+      ).toMatch(/Legacy operator skill/);
+      expect(
+        await fs.readFile(path.join(newSkillsHome, "alpha", "SKILL.md"), "utf8"),
+      ).toMatch(/Alpha skill/);
+      expect(await fs.lstat(legacySkillsDir).catch(() => null)).toBeNull();
+
+      const alphaEntry = snapshot.entries.find((entry) => entry.runtimeName === "alpha");
+      expect(alphaEntry?.state).toBe("installed");
+      expect(alphaEntry?.managed).toBe(true);
+
+      const customEntry = snapshot.entries.find((entry) => entry.runtimeName === "custom-legacy");
+      expect(customEntry?.state).toBe("external");
+      expect(customEntry?.managed).toBe(false);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("syncSkillsForRun and receipts", () => {
@@ -505,6 +606,60 @@ describe("syncSkillsForRun and receipts", () => {
       const joined = describeRunSkillSync(sync).join("\n");
       expect(joined).toMatch(/1 not installed/);
       expect(joined).toMatch(/missing key=paperclipai\/paperclip\/beta/);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("syncSkillsForRun migrates custom skills from legacy root even with no desired skills", async () => {
+    const tmp = await makeTempDir();
+    try {
+      const rootPath = path.join(tmp, "custom-root");
+      const legacySkillsDir = path.join(rootPath, ".agents", "skills");
+      await writeSkillSource(legacySkillsDir, "custom-legacy", "Legacy operator skill");
+
+      const result = await syncSkillsForRun({
+        agentId: AGENT_ID,
+        companyId: "c1",
+        config: skillConfig(
+          {},
+          {
+            skillsRootPath: rootPath,
+            paperclipSkillSync: { desiredSkills: [] },
+          },
+        ),
+      });
+
+      const newSkillsHome = path.join(rootPath, AGENT_ID, ".agents", "skills");
+      expect(
+        await fs.readFile(path.join(newSkillsHome, "custom-legacy", "SKILL.md"), "utf8"),
+      ).toMatch(/Legacy operator skill/);
+      expect(await fs.lstat(legacySkillsDir).catch(() => null)).toBeNull();
+      expect(result.snapshot).toBeNull();
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("migrateLegacySkills does not overwrite skills already in agent-specific home", async () => {
+    const tmp = await makeTempDir();
+    try {
+      const rootPath = path.join(tmp, "custom-root");
+      const legacySkillsDir = path.join(rootPath, ".agents", "skills");
+      const newSkillsHome = path.join(rootPath, AGENT_ID, ".agents", "skills");
+      await writeSkillSource(legacySkillsDir, "shared-skill", "Old legacy version");
+      await writeSkillSource(newSkillsHome, "shared-skill", "New agent version");
+
+      const root = resolveAgySkillRoot({
+        config: { skillsRootPath: rootPath },
+        agentId: AGENT_ID,
+      });
+
+      await migrateLegacySkills(root);
+
+      expect(
+        await fs.readFile(path.join(newSkillsHome, "shared-skill", "SKILL.md"), "utf8"),
+      ).toMatch(/New agent version/);
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }

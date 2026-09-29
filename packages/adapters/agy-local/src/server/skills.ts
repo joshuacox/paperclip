@@ -66,6 +66,8 @@ export interface AgySkillRoot {
   addDir: string;
   /** Directory holding `<runtimeName>/SKILL.md`. */
   skillsHome: string;
+  /** Legacy directory holding `<runtimeName>/SKILL.md` before agent-scoping was applied. */
+  legacySkillsHome?: string;
   /** Human-readable location for the Paperclip skills UI. */
   locationLabel: string;
   warnings?: string[];
@@ -104,12 +106,15 @@ export function resolveAgySkillRoot(input: ResolveAgySkillRootInput): AgySkillRo
   const safeAgentId = sanitizeAgentIdSegment(agentId);
   const configuredRoot = asString(config.skillsRootPath, "").trim();
   let addDir: string;
+  let legacySkillsHome: string | undefined;
   if (configuredRoot) {
     const resolvedRoot = path.resolve(configuredRoot);
-    addDir =
-      path.basename(resolvedRoot) === safeAgentId
-        ? resolvedRoot
-        : path.join(resolvedRoot, safeAgentId);
+    if (path.basename(resolvedRoot) === safeAgentId) {
+      addDir = resolvedRoot;
+    } else {
+      addDir = path.join(resolvedRoot, safeAgentId);
+      legacySkillsHome = path.join(resolvedRoot, AGY_WORKSPACE_SKILL_SUBPATH);
+    }
   } else {
     addDir = path.join(homeDir, ...AGY_AGENT_SKILL_ROOT_SEGMENTS, safeAgentId);
   }
@@ -122,6 +127,7 @@ export function resolveAgySkillRoot(input: ResolveAgySkillRootInput): AgySkillRo
     scope,
     addDir,
     skillsHome: path.join(addDir, AGY_WORKSPACE_SKILL_SUBPATH),
+    legacySkillsHome,
     locationLabel: path.join(addDir, AGY_WORKSPACE_SKILL_SUBPATH),
     warnings: hasGlobalScope
       ? [
@@ -167,8 +173,80 @@ function buildSnapshot(options: {
   });
 }
 
+/**
+ * Migrates existing custom skills from the un-scoped legacy directory
+ * (e.g. `<configuredRoot>/.agents/skills`) into the agent-scoped directory
+ * (`<configuredRoot>/<agentId>/.agents/skills`).
+ */
+export async function migrateLegacySkills(root: AgySkillRoot): Promise<string[]> {
+  const { legacySkillsHome, skillsHome } = root;
+  if (!legacySkillsHome || legacySkillsHome === skillsHome) {
+    return [];
+  }
+
+  let entries: import("node:fs").Dirent[];
+  try {
+    const stat = await fs.stat(legacySkillsHome);
+    if (!stat.isDirectory()) return [];
+    entries = await fs.readdir(legacySkillsHome, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  if (entries.length === 0) {
+    await fs.rmdir(legacySkillsHome).catch(() => {});
+    await fs.rmdir(path.dirname(legacySkillsHome)).catch(() => {});
+    return [];
+  }
+
+  await fs.mkdir(skillsHome, { recursive: true });
+
+  const migrated: string[] = [];
+
+  for (const entry of entries) {
+    const src = path.join(legacySkillsHome, entry.name);
+    const dest = path.join(skillsHome, entry.name);
+
+    const destStat = await fs.lstat(dest).catch(() => null);
+    if (destStat) {
+      continue;
+    }
+
+    try {
+      await fs.rename(src, dest);
+      migrated.push(entry.name);
+    } catch (err: unknown) {
+      const code = (err as { code?: string })?.code;
+      if (code === "EXDEV") {
+        try {
+          if (entry.isSymbolicLink()) {
+            const linkTarget = await fs.readlink(src);
+            await fs.symlink(linkTarget, dest);
+            await fs.unlink(src);
+          } else {
+            await fs.cp(src, dest, { recursive: true });
+            await fs.rm(src, { recursive: true, force: true });
+          }
+          migrated.push(entry.name);
+        } catch {
+          // best-effort
+        }
+      }
+    }
+  }
+
+  const remaining = await fs.readdir(legacySkillsHome).catch(() => []);
+  if (remaining.length === 0) {
+    await fs.rmdir(legacySkillsHome).catch(() => {});
+    await fs.rmdir(path.dirname(legacySkillsHome)).catch(() => {});
+  }
+
+  return migrated;
+}
+
 export async function listAgySkills(ctx: AdapterSkillContext): Promise<AdapterSkillSnapshot> {
   const root = resolveAgySkillRoot({ config: ctx.config, agentId: ctx.agentId });
+  await migrateLegacySkills(root);
   const availableEntries = await readPaperclipRuntimeSkillEntries(ctx.config, __moduleDir);
   const desiredSkills = resolveLegacyPaperclipDesiredSkillNames(ctx.config, availableEntries);
   const installed = await readInstalledSkillTargets(root.skillsHome);
@@ -188,6 +266,7 @@ export async function syncAgySkills(
   desiredSkills: string[],
 ): Promise<AdapterSkillSnapshot> {
   const root = resolveAgySkillRoot({ config: ctx.config, agentId: ctx.agentId });
+  await migrateLegacySkills(root);
   const availableEntries = await readPaperclipRuntimeSkillEntries(ctx.config, __moduleDir);
   const desiredSet = new Set(desiredSkills);
   const warnings = warningsForRoot(root);
@@ -255,6 +334,7 @@ export async function syncSkillsForRun(input: {
 }): Promise<RunSkillSync> {
   const { config, agentId, companyId } = input;
   const root = resolveAgySkillRoot({ config, agentId });
+  await migrateLegacySkills(root);
   const availableEntries = await readPaperclipRuntimeSkillEntries(config, __moduleDir);
   const desiredSkills = resolveLegacyPaperclipDesiredSkillNames(config, availableEntries);
 
