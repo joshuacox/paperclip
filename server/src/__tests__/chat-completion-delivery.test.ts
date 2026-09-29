@@ -248,6 +248,57 @@ const support = await getEmbeddedPostgresTestSupport();
     await db.update(agents).set({ status: "idle" }).where(eq(agents.id, f.agentId));
     await f.due(); await f.service.deliver(delivery.id); expect(f.wakeup).toHaveBeenCalledOnce();
   });
+  it("records handoff for native runs via originRunId and nativeIssueId", async () => {
+    const f = await seed();
+    const nativeRunId = randomUUID();
+    await db.insert(heartbeatRuns).values({
+      id: nativeRunId,
+      companyId: f.companyId,
+      agentId: f.agentId,
+      status: "running",
+      runtimeMode: "native",
+      nativeIssueId: f.sourceId,
+    });
+    const delegatedTask = await issueService(db).create(f.companyId, {
+      title: "Delegated child",
+      status: "todo",
+      createdByAgentId: f.agentId,
+      originRunId: nativeRunId,
+    });
+    expect(await db.select().from(handoffs).where(eq(handoffs.taskId, delegatedTask.id))).toMatchObject([
+      { conversationId: f.sourceId, sessionGeneration: 0 },
+    ]);
+  });
+  it("reports all completed onboarding children beyond 20", async () => {
+    const f = await seed();
+    await db.update(issues).set({
+      conversationAgentId: null,
+      conversationUserId: null,
+      conversationState: null,
+      originKind: "onboarding_first_task",
+      status: "done",
+    }).where(eq(issues.id, f.sourceId));
+
+    for (let i = 0; i < 25; i++) {
+      await db.insert(issues).values({
+        companyId: f.companyId,
+        parentId: f.sourceId,
+        title: `Child ${i}`,
+        status: "done",
+      });
+    }
+
+    const [run] = await db.insert(heartbeatRuns).values({
+      companyId: f.companyId,
+      agentId: f.agentId,
+      status: "queued",
+      contextSnapshot: { issueId: f.sourceId, wakeReason: "issue_children_completed" },
+    }).returning();
+
+    const prepared = await prepareChatCompletionTurn(db, run);
+    expect(prepared.contextSnapshot?.onboardingCompletion).toBe(true);
+    expect(prepared.contextSnapshot?.chatCompletionUpdates).toHaveLength(25);
+  });
   it("queues onboarding completion behind a busy turn without changing generic handoffs", () => {
     expect(shouldQueueFollowupForRunningIssueWake({ contextSnapshot: { wakeReason: "issue_children_completed", onboardingCompletion: true }, wakeCommentId: null })).toBe(true);
     expect(shouldQueueFollowupForRunningIssueWake({ contextSnapshot: { wakeReason: "issue_children_completed" }, wakeCommentId: null })).toBe(false);

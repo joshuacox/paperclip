@@ -18,14 +18,16 @@ function ids(run: Run): string[] {
 }
 
 export async function recordChatHandoff(tx: Connection, task: Issue, actorRunId: string | null | undefined) {
-  if (!actorRunId || task.conversationAgentId || !task.createdByAgentId) return;
-  const [run] = await tx.select().from(heartbeatRuns).where(and(eq(heartbeatRuns.id, actorRunId),
+  const effectiveRunId = actorRunId ?? task.originRunId;
+  if (!effectiveRunId || task.conversationAgentId || !task.createdByAgentId) return;
+  const [run] = await tx.select().from(heartbeatRuns).where(and(eq(heartbeatRuns.id, effectiveRunId),
     eq(heartbeatRuns.companyId, task.companyId), eq(heartbeatRuns.agentId, task.createdByAgentId)));
   const sourceId = run?.nativeIssueId ?? run?.contextSnapshot?.issueId;
   if (typeof sourceId !== "string" || sourceId === task.id) return;
   const [source] = await tx.select().from(issues).where(and(eq(issues.id, sourceId), eq(issues.companyId, task.companyId)));
+  const sessionGeneration = run?.contextSnapshot?.conversationSessionGeneration ?? (run?.runtimeMode === "native" ? source?.conversationSessionGeneration : undefined);
   if (!source?.conversationAgentId || source.conversationAgentId !== run.agentId ||
-    source.conversationSessionGeneration !== run.contextSnapshot?.conversationSessionGeneration) return;
+    source.conversationSessionGeneration !== sessionGeneration) return;
   await tx.insert(handoffs).values({ taskId: task.id, companyId: task.companyId,
     conversationId: source.id, agentId: source.conversationAgentId, sessionGeneration: source.conversationSessionGeneration }).onConflictDoNothing();
 }
@@ -89,7 +91,7 @@ export async function prepareChatCompletionTurn(db: Db, run: Run): Promise<Run> 
     const [source] = await tx.select().from(issues).where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId))).for("update");
     if (!source) return run;
     if (source.originKind === "onboarding_first_task" && run.contextSnapshot?.wakeReason === "issue_children_completed") {
-      const children = await tx.select().from(issues).where(and(eq(issues.companyId, run.companyId), eq(issues.parentId, source.id), eq(issues.status, "done"))).orderBy(issues.createdAt).limit(20);
+      const children = await tx.select().from(issues).where(and(eq(issues.companyId, run.companyId), eq(issues.parentId, source.id), eq(issues.status, "done"))).orderBy(issues.createdAt);
       const contextSnapshot = { ...run.contextSnapshot, onboardingCompletion: true,
         chatCompletionUpdates: await Promise.all(children.map(child => taskResult(tx, child))) };
       await tx.update(heartbeatRuns).set({ contextSnapshot }).where(eq(heartbeatRuns.id, run.id));
