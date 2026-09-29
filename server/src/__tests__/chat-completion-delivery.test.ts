@@ -11,7 +11,7 @@ import { issueService } from "../services/issues.js";
 import { buildLowTrustSourceTrust } from "../services/source-trust.js";
 import { documentService } from "../services/documents.js";
 import { instanceSettingsService } from "../services/instance-settings.js";
-import { chatCompletionDeliveryService, isCompletedOnboardingHandoffWake, prepareChatCompletionTurn, recordChatCompletion, recordChatHandoff } from "../services/chat-completion-delivery.js";
+import { chatCompletionDeliveryService, chatCompletionInstruction, isCompletedOnboardingHandoffWake, prepareChatCompletionTurn, recordChatCompletion, recordChatHandoff } from "../services/chat-completion-delivery.js";
 import { heartbeatService, shouldQueueFollowupForRunningIssueWake } from "../services/heartbeat.js";
 
 const support = await getEmbeddedPostgresTestSupport();
@@ -269,7 +269,7 @@ const support = await getEmbeddedPostgresTestSupport();
       { conversationId: f.sourceId, sessionGeneration: 0 },
     ]);
   });
-  it("reports all completed onboarding children beyond 20", async () => {
+  it("caps completed onboarding children at 20 and records bounded overflow metadata", async () => {
     const f = await seed();
     await db.update(issues).set({
       conversationAgentId: null,
@@ -297,7 +297,13 @@ const support = await getEmbeddedPostgresTestSupport();
 
     const prepared = await prepareChatCompletionTurn(db, run);
     expect(prepared.contextSnapshot?.onboardingCompletion).toBe(true);
-    expect(prepared.contextSnapshot?.chatCompletionUpdates).toHaveLength(25);
+    expect(prepared.contextSnapshot?.chatCompletionUpdates).toHaveLength(20);
+    expect(prepared.contextSnapshot?.onboardingCompletionTruncated).toBe(true);
+    expect(prepared.contextSnapshot?.onboardingCompletionTotal).toBe(25);
+    expect(prepared.contextSnapshot?.onboardingCompletionOmitted).toBe(5);
+    expect(chatCompletionInstruction(prepared.contextSnapshot as Record<string, unknown>)).toContain(
+      "Showing the first 20 of 25 completed tasks; 5 additional completed tasks omitted to preserve context window."
+    );
   });
   it("queues onboarding completion behind a busy turn without changing generic handoffs", () => {
     expect(shouldQueueFollowupForRunningIssueWake({ contextSnapshot: { wakeReason: "issue_children_completed", onboardingCompletion: true }, wakeCommentId: null })).toBe(true);
