@@ -173,7 +173,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
 
   // ── Skills reconciliation and receipt logging ──────────────────────────────
-  let skillRoot = resolveAgySkillRoot({ config, agentId: agent.id });
+  let skillRoot = resolveAgySkillRoot({
+    config,
+    agentId: agent.id,
+    companyId: agent.companyId,
+  });
   let skillsAddDir: string | null = null;
   if (skillRoot.addDir && !executionTargetIsRemote) {
     try {

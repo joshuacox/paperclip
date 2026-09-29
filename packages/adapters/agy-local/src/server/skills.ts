@@ -68,6 +68,8 @@ export interface AgySkillRoot {
   skillsHome: string;
   /** Legacy directory holding `<runtimeName>/SKILL.md` before agent-scoping was applied. */
   legacySkillsHome?: string;
+  /** Company ID this agent belongs to. */
+  companyId?: string | null;
   /** Human-readable location for the Paperclip skills UI. */
   locationLabel: string;
   warnings?: string[];
@@ -76,6 +78,7 @@ export interface AgySkillRoot {
 export interface ResolveAgySkillRootInput {
   config: Record<string, unknown>;
   agentId?: string | null;
+  companyId?: string | null;
   /** Overridable for tests; defaults to the process user's home directory. */
   homeDir?: string;
 }
@@ -100,6 +103,7 @@ export function sanitizeAgentIdSegment(agentId: string): string {
 export function resolveAgySkillRoot(input: ResolveAgySkillRootInput): AgySkillRoot {
   const { config } = input;
   const agentId = input.agentId ?? "default";
+  const companyId = input.companyId ?? (asString(config.companyId, "") || null);
   const homeDir = input.homeDir ?? os.homedir();
   const scope = normalizeScope(config.skillsScope);
 
@@ -128,6 +132,7 @@ export function resolveAgySkillRoot(input: ResolveAgySkillRootInput): AgySkillRo
     addDir,
     skillsHome: path.join(addDir, AGY_WORKSPACE_SKILL_SUBPATH),
     legacySkillsHome,
+    companyId,
     locationLabel: path.join(addDir, AGY_WORKSPACE_SKILL_SUBPATH),
     warnings: hasGlobalScope
       ? [
@@ -173,16 +178,188 @@ function buildSnapshot(options: {
   });
 }
 
+export interface MigrateLegacySkillsOptions {
+  companyId?: string | null;
+  availableEntries?: PaperclipSkillEntry[];
+}
+
+export function extractCompanyIdFromSkillMarkdown(content: string): string | null {
+  if (!content.startsWith("---")) return null;
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)/);
+  if (!match) return null;
+  const frontmatter = match[1];
+
+  const lines = frontmatter.split(/\r?\n/);
+  for (const line of lines) {
+    const fieldMatch = line.match(
+      /^\s*(?:companyId|company_id|company|ownerCompanyId)\s*:\s*['"]?([a-zA-Z0-9_-]+)['"]?\s*$/i,
+    );
+    if (fieldMatch) {
+      return fieldMatch[1];
+    }
+  }
+
+  return null;
+}
+
+export async function readSkillDirectoryCompanyId(dirPath: string): Promise<string | null> {
+  const textFiles = [".companyId", ".company"];
+  for (const filename of textFiles) {
+    try {
+      const raw = (await fs.readFile(path.join(dirPath, filename), "utf8")).trim();
+      if (!raw) continue;
+      if (raw.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(raw);
+          const cid = asString(
+            parsed.companyId ?? parsed.company_id ?? parsed.company ?? parsed.ownerCompanyId,
+            "",
+          ).trim();
+          if (cid) return cid;
+        } catch {
+          // not json
+        }
+      }
+      if (/^[a-zA-Z0-9_-]+$/.test(raw)) {
+        return raw;
+      }
+    } catch {
+      // not found
+    }
+  }
+
+  const jsonFiles = ["company.json", "skill.json", "metadata.json", ".paperclip.json"];
+  for (const filename of jsonFiles) {
+    try {
+      const raw = await fs.readFile(path.join(dirPath, filename), "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") {
+        const cid = asString(
+          parsed.companyId ?? parsed.company_id ?? parsed.company ?? parsed.ownerCompanyId,
+          "",
+        ).trim();
+        if (cid) return cid;
+      }
+    } catch {
+      // not found or invalid json
+    }
+  }
+
+  try {
+    const raw = await fs.readFile(path.join(dirPath, "SKILL.md"), "utf8");
+    const cid = extractCompanyIdFromSkillMarkdown(raw);
+    if (cid) return cid;
+  } catch {
+    // SKILL.md not found
+  }
+
+  return null;
+}
+
+export function extractCompanyIdFromPath(filePath: string): string | null {
+  const normalized = filePath.replace(/\\/g, "/");
+  const match = normalized.match(/(?:^|\/)(?:skills|companies)\/([a-zA-Z0-9_-]+)(?:\/|$)/i);
+  if (match) {
+    const candidate = match[1];
+    if (!candidate.startsWith("__")) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function extractCompanyFromPathSegment(filePath: string, currentCompanyId: string | null): string | null {
+  const fromStandard = extractCompanyIdFromPath(filePath);
+  if (fromStandard) return fromStandard;
+
+  const normalized = filePath.replace(/\\/g, "/");
+  const match = normalized.match(/(?:^|\/)(company-[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]+-company)(?:\/|$)/i);
+  if (match) {
+    return match[1];
+  }
+  return null;
+}
+
+export async function isEntryOwnedByOtherCompany(
+  legacySkillsHome: string,
+  entry: import("node:fs").Dirent,
+  options: MigrateLegacySkillsOptions,
+): Promise<boolean> {
+  const currentCompanyId = options.companyId?.trim() || null;
+  const availableEntries = options.availableEntries ?? [];
+  const src = path.join(legacySkillsHome, entry.name);
+
+  if (entry.isSymbolicLink()) {
+    let linkTarget: string | null = null;
+    try {
+      linkTarget = await fs.readlink(src);
+    } catch {
+      return false;
+    }
+    const resolvedTarget = path.resolve(path.dirname(src), linkTarget);
+
+    // 1. If symlink points directly to one of current company's available skill sources,
+    // it belongs to current company.
+    if (availableEntries.some((e) => path.resolve(e.source) === resolvedTarget)) {
+      return false;
+    }
+
+    // 2. If current company has an available skill with matching runtimeName or key,
+    // but the symlink target does NOT match its source, this symlink belongs to another company.
+    const matchingAvailable = availableEntries.find(
+      (e) => e.runtimeName === entry.name || e.key === entry.name,
+    );
+    if (matchingAvailable && path.resolve(matchingAvailable.source) !== resolvedTarget) {
+      return true;
+    }
+
+    // 3. Check company ID from path (e.g. /skills/<companyId>/ or /companies/<companyId>/)
+    const pathCompanyId =
+      extractCompanyIdFromPath(resolvedTarget) ||
+      extractCompanyIdFromPath(linkTarget) ||
+      extractCompanyFromPathSegment(resolvedTarget, currentCompanyId) ||
+      extractCompanyFromPathSegment(linkTarget, currentCompanyId);
+    if (pathCompanyId && currentCompanyId && pathCompanyId !== currentCompanyId) {
+      return true;
+    }
+
+    // 4. Check company ID from resolved target directory metadata
+    const targetDirCompanyId = await readSkillDirectoryCompanyId(resolvedTarget);
+    if (targetDirCompanyId && currentCompanyId && targetDirCompanyId !== currentCompanyId) {
+      return true;
+    }
+
+    return false;
+  }
+
+  // Directory or file directly in legacySkillsHome
+  const dirCompanyId = await readSkillDirectoryCompanyId(src);
+  if (dirCompanyId && currentCompanyId && dirCompanyId !== currentCompanyId) {
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Migrates existing custom skills from the un-scoped legacy directory
  * (e.g. `<configuredRoot>/.agents/skills`) into the agent-scoped directory
- * (`<configuredRoot>/<agentId>/.agents/skills`).
+ * (`<configuredRoot>/<agentId>/.agents/skills`), while preserving any skills
+ * owned by other companies on a shared host.
  */
-export async function migrateLegacySkills(root: AgySkillRoot): Promise<string[]> {
+export async function migrateLegacySkills(
+  root: AgySkillRoot,
+  options?: MigrateLegacySkillsOptions,
+): Promise<string[]> {
   const { legacySkillsHome, skillsHome } = root;
   if (!legacySkillsHome || legacySkillsHome === skillsHome) {
     return [];
   }
+
+  const effectiveOptions: MigrateLegacySkillsOptions = {
+    companyId: options?.companyId ?? root.companyId ?? null,
+    availableEntries: options?.availableEntries ?? [],
+  };
 
   let entries: import("node:fs").Dirent[];
   try {
@@ -204,6 +381,10 @@ export async function migrateLegacySkills(root: AgySkillRoot): Promise<string[]>
   const migrated: string[] = [];
 
   for (const entry of entries) {
+    if (await isEntryOwnedByOtherCompany(legacySkillsHome, entry, effectiveOptions)) {
+      continue;
+    }
+
     const src = path.join(legacySkillsHome, entry.name);
     const dest = path.join(skillsHome, entry.name);
 
@@ -245,9 +426,13 @@ export async function migrateLegacySkills(root: AgySkillRoot): Promise<string[]>
 }
 
 export async function listAgySkills(ctx: AdapterSkillContext): Promise<AdapterSkillSnapshot> {
-  const root = resolveAgySkillRoot({ config: ctx.config, agentId: ctx.agentId });
-  await migrateLegacySkills(root);
+  const root = resolveAgySkillRoot({
+    config: ctx.config,
+    agentId: ctx.agentId,
+    companyId: ctx.companyId,
+  });
   const availableEntries = await readPaperclipRuntimeSkillEntries(ctx.config, __moduleDir);
+  await migrateLegacySkills(root, { companyId: ctx.companyId, availableEntries });
   const desiredSkills = resolveLegacyPaperclipDesiredSkillNames(ctx.config, availableEntries);
   const installed = await readInstalledSkillTargets(root.skillsHome);
   return buildSnapshot({
@@ -265,9 +450,13 @@ export async function syncAgySkills(
   ctx: AdapterSkillContext,
   desiredSkills: string[],
 ): Promise<AdapterSkillSnapshot> {
-  const root = resolveAgySkillRoot({ config: ctx.config, agentId: ctx.agentId });
-  await migrateLegacySkills(root);
+  const root = resolveAgySkillRoot({
+    config: ctx.config,
+    agentId: ctx.agentId,
+    companyId: ctx.companyId,
+  });
   const availableEntries = await readPaperclipRuntimeSkillEntries(ctx.config, __moduleDir);
+  await migrateLegacySkills(root, { companyId: ctx.companyId, availableEntries });
   const desiredSet = new Set(desiredSkills);
   const warnings = warningsForRoot(root);
 
@@ -333,9 +522,9 @@ export async function syncSkillsForRun(input: {
   companyId: string;
 }): Promise<RunSkillSync> {
   const { config, agentId, companyId } = input;
-  const root = resolveAgySkillRoot({ config, agentId });
-  await migrateLegacySkills(root);
+  const root = resolveAgySkillRoot({ config, agentId, companyId });
   const availableEntries = await readPaperclipRuntimeSkillEntries(config, __moduleDir);
+  await migrateLegacySkills(root, { companyId, availableEntries });
   const desiredSkills = resolveLegacyPaperclipDesiredSkillNames(config, availableEntries);
 
   if (desiredSkills.length === 0 && availableEntries.length === 0) {

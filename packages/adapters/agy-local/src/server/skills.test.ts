@@ -21,12 +21,20 @@ async function makeTempDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "agy-skills-test-"));
 }
 
-async function writeSkillSource(root: string, name: string, body: string): Promise<string> {
+async function writeSkillSource(
+  root: string,
+  name: string,
+  body: string,
+  options?: { companyId?: string },
+): Promise<string> {
   const dir = path.join(root, name);
   await fs.mkdir(dir, { recursive: true });
+  const frontmatter = options?.companyId
+    ? `---\nname: ${name}\ndescription: ${body}\ncompanyId: ${options.companyId}\n---`
+    : `---\nname: ${name}\ndescription: ${body}\n---`;
   await fs.writeFile(
     path.join(dir, "SKILL.md"),
-    `---\nname: ${name}\ndescription: ${body}\n---\n\n${body}\n`,
+    `${frontmatter}\n\n${body}\n`,
   );
   return dir;
 }
@@ -398,6 +406,136 @@ describe("listSkills and syncSkills", () => {
       const customEntry = snapshot.entries.find((entry) => entry.runtimeName === "custom-legacy");
       expect(customEntry?.state).toBe("external");
       expect(customEntry?.managed).toBe(false);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("does not migrate skills belonging to another company when agents share skillsRootPath", async () => {
+    const tmp = await makeTempDir();
+    try {
+      const rootPath = path.join(tmp, "shared-custom-root");
+      const legacySkillsDir = path.join(rootPath, ".agents", "skills");
+      await fs.mkdir(legacySkillsDir, { recursive: true });
+
+      // Create company-1 skill source and company-2 skill source
+      const c1Source = await writeSkillSource(path.join(tmp, "skills", "c1"), "alpha", "Company 1 Alpha");
+      const c2Source = await writeSkillSource(path.join(tmp, "skills", "c2"), "beta", "Company 2 Beta");
+
+      // In legacy root, symlinks existed for both
+      await fs.symlink(c1Source, path.join(legacySkillsDir, "alpha"));
+      await fs.symlink(c2Source, path.join(legacySkillsDir, "beta"));
+
+      // Also create custom directories with explicit company metadata
+      await writeSkillSource(legacySkillsDir, "c1-custom", "Custom for C1", { companyId: "c1" });
+      await writeSkillSource(legacySkillsDir, "c2-custom", "Custom for C2", { companyId: "c2" });
+
+      const agent1Id = "agent-c1-0001";
+      const agent2Id = "agent-c2-0002";
+
+      const c1Config = skillConfig(
+        { "paperclipai/paperclip/alpha": c1Source },
+        { skillsRootPath: rootPath },
+      );
+      const c2Config = skillConfig(
+        { "paperclipai/paperclip/beta": c2Source },
+        { skillsRootPath: rootPath },
+      );
+
+      // Agent 1 (Company 1) syncs skills
+      const snap1 = await syncSkills(
+        { agentId: agent1Id, companyId: "c1", adapterType: "agy_local", config: c1Config },
+        ["paperclipai/paperclip/alpha"],
+      );
+
+      const agent1SkillsHome = path.join(rootPath, agent1Id, ".agents", "skills");
+      // Agent 1 gets alpha and c1-custom
+      expect(await fs.lstat(path.join(agent1SkillsHome, "alpha")).catch(() => null)).not.toBeNull();
+      expect(await fs.lstat(path.join(agent1SkillsHome, "c1-custom")).catch(() => null)).not.toBeNull();
+
+      // Agent 1 MUST NOT get beta or c2-custom
+      expect(await fs.lstat(path.join(agent1SkillsHome, "beta")).catch(() => null)).toBeNull();
+      expect(await fs.lstat(path.join(agent1SkillsHome, "c2-custom")).catch(() => null)).toBeNull();
+
+      // Legacy root MUST still contain beta and c2-custom!
+      expect(await fs.lstat(path.join(legacySkillsDir, "beta")).catch(() => null)).not.toBeNull();
+      expect(await fs.lstat(path.join(legacySkillsDir, "c2-custom")).catch(() => null)).not.toBeNull();
+
+      // And legacy root MUST NOT contain alpha or c1-custom anymore
+      expect(await fs.lstat(path.join(legacySkillsDir, "alpha")).catch(() => null)).toBeNull();
+      expect(await fs.lstat(path.join(legacySkillsDir, "c1-custom")).catch(() => null)).toBeNull();
+
+      // Now Agent 2 (Company 2) syncs skills
+      const snap2 = await syncSkills(
+        { agentId: agent2Id, companyId: "c2", adapterType: "agy_local", config: c2Config },
+        ["paperclipai/paperclip/beta"],
+      );
+
+      const agent2SkillsHome = path.join(rootPath, agent2Id, ".agents", "skills");
+      // Agent 2 gets beta and c2-custom
+      expect(await fs.lstat(path.join(agent2SkillsHome, "beta")).catch(() => null)).not.toBeNull();
+      expect(await fs.lstat(path.join(agent2SkillsHome, "c2-custom")).catch(() => null)).not.toBeNull();
+
+      // Agent 2 MUST NOT have c1 skills
+      expect(await fs.lstat(path.join(agent2SkillsHome, "alpha")).catch(() => null)).toBeNull();
+      expect(await fs.lstat(path.join(agent2SkillsHome, "c1-custom")).catch(() => null)).toBeNull();
+
+      // Legacy skills root should now be completely migrated and cleaned up
+      expect(await fs.lstat(legacySkillsDir).catch(() => null)).toBeNull();
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves another company's symlink when both companies have a skill with the same runtime name", async () => {
+    const tmp = await makeTempDir();
+    try {
+      const rootPath = path.join(tmp, "shared-custom-root");
+      const legacySkillsDir = path.join(rootPath, ".agents", "skills");
+      await fs.mkdir(legacySkillsDir, { recursive: true });
+
+      const c1Source = await writeSkillSource(path.join(tmp, "c1-src"), "calc", "C1 Calculator");
+      const c2Source = await writeSkillSource(path.join(tmp, "c2-src"), "calc", "C2 Calculator");
+
+      // In legacy, the symlink pointed to C2's source
+      await fs.symlink(c2Source, path.join(legacySkillsDir, "calc"));
+
+      const agent1Id = "agent-c1-0001";
+      const agent2Id = "agent-c2-0002";
+
+      const c1Config = skillConfig(
+        { "paperclipai/paperclip/calc": c1Source },
+        { skillsRootPath: rootPath },
+      );
+      const c2Config = skillConfig(
+        { "paperclipai/paperclip/calc": c2Source },
+        { skillsRootPath: rootPath },
+      );
+
+      // Agent 1 (Company 1) syncs
+      await syncSkills(
+        { agentId: agent1Id, companyId: "c1", adapterType: "agy_local", config: c1Config },
+        ["paperclipai/paperclip/calc"],
+      );
+
+      const agent1SkillsHome = path.join(rootPath, agent1Id, ".agents", "skills");
+      // Agent 1 gets a fresh link pointing to C1's source
+      expect(await fs.realpath(path.join(agent1SkillsHome, "calc"))).toBe(await fs.realpath(c1Source));
+
+      // The legacy link still points to C2's source!
+      expect(await fs.readlink(path.join(legacySkillsDir, "calc"))).toBe(c2Source);
+
+      // Agent 2 (Company 2) syncs
+      await syncSkills(
+        { agentId: agent2Id, companyId: "c2", adapterType: "agy_local", config: c2Config },
+        ["paperclipai/paperclip/calc"],
+      );
+
+      const agent2SkillsHome = path.join(rootPath, agent2Id, ".agents", "skills");
+      expect(await fs.realpath(path.join(agent2SkillsHome, "calc"))).toBe(await fs.realpath(c2Source));
+
+      // Now legacy is cleaned up
+      expect(await fs.lstat(legacySkillsDir).catch(() => null)).toBeNull();
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
