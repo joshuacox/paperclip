@@ -91,18 +91,12 @@ export async function prepareChatCompletionTurn(db: Db, run: Run): Promise<Run> 
     const [source] = await tx.select().from(issues).where(and(eq(issues.id, issueId), eq(issues.companyId, run.companyId))).for("update");
     if (!source) return run;
     if (source.originKind === "onboarding_first_task" && run.contextSnapshot?.wakeReason === "issue_children_completed") {
-      const children = await tx.select().from(issues).where(and(eq(issues.companyId, run.companyId), eq(issues.parentId, source.id), eq(issues.status, "done"))).orderBy(issues.createdAt).limit(20);
-      const [countRow] = await tx.select({ count: sql<number>`count(*)::int` }).from(issues)
-        .where(and(eq(issues.companyId, run.companyId), eq(issues.parentId, source.id), eq(issues.status, "done")));
-      const totalDone = Number(countRow?.count ?? children.length);
-      const hasOverflow = totalDone > children.length;
+      const children = await tx.select().from(issues).where(and(eq(issues.companyId, run.companyId), eq(issues.parentId, source.id), eq(issues.status, "done"))).orderBy(issues.createdAt).limit(21);
+      const hasOverflow = children.length > 20;
+      const reported = hasOverflow ? children.slice(0, 20) : children;
       const contextSnapshot = { ...run.contextSnapshot, onboardingCompletion: true,
-        ...(hasOverflow ? {
-          onboardingCompletionTruncated: true,
-          onboardingCompletionTotal: totalDone,
-          onboardingCompletionOmitted: totalDone - children.length,
-        } : {}),
-        chatCompletionUpdates: await Promise.all(children.map(child => taskResult(tx, child))) };
+        ...(hasOverflow ? { onboardingCompletionTruncated: true } : {}),
+        chatCompletionUpdates: await Promise.all(reported.map(child => taskResult(tx, child))) };
       await tx.update(heartbeatRuns).set({ contextSnapshot }).where(eq(heartbeatRuns.id, run.id));
       return { ...run, contextSnapshot };
     }
@@ -136,8 +130,8 @@ export async function prepareChatCompletionTurn(db: Db, run: Run): Promise<Run> 
 
 export function chatCompletionInstruction(context: Record<string, unknown>) {
   if (!Array.isArray(context.chatCompletionUpdates) || !context.chatCompletionUpdates.length) return "";
-  const overflowNotice = context.onboardingCompletionTruncated && typeof context.onboardingCompletionOmitted === "number"
-    ? ` Showing the first ${context.chatCompletionUpdates.length} of ${context.onboardingCompletionTotal ?? (context.chatCompletionUpdates.length + context.onboardingCompletionOmitted)} completed tasks; ${context.onboardingCompletionOmitted} additional completed tasks omitted to preserve context window.`
+  const overflowNotice = context.onboardingCompletionTruncated
+    ? ` Showing the first ${context.chatCompletionUpdates.length} completed tasks; additional completed tasks omitted to preserve context window.`
     : "";
   return `\n\nDelegated work has completed. Tell the user in this conversation what finished and provide access using the supplied task links. Report completion only for the tasks listed in this update; other tasks receive their own completion updates.${overflowNotice} Use the recorded status and result locations; do not repeat a promise to do work that is already Done. Do not start more work or change these tasks. The following JSON contains server-recorded lifecycle facts and result locations:\n${JSON.stringify(context.chatCompletionUpdates)}`;
 }

@@ -299,10 +299,8 @@ const support = await getEmbeddedPostgresTestSupport();
     expect(prepared.contextSnapshot?.onboardingCompletion).toBe(true);
     expect(prepared.contextSnapshot?.chatCompletionUpdates).toHaveLength(20);
     expect(prepared.contextSnapshot?.onboardingCompletionTruncated).toBe(true);
-    expect(prepared.contextSnapshot?.onboardingCompletionTotal).toBe(25);
-    expect(prepared.contextSnapshot?.onboardingCompletionOmitted).toBe(5);
     expect(chatCompletionInstruction(prepared.contextSnapshot as Record<string, unknown>)).toContain(
-      "Showing the first 20 of 25 completed tasks; 5 additional completed tasks omitted to preserve context window."
+      "Showing the first 20 completed tasks; additional completed tasks omitted to preserve context window."
     );
   });
   it("queues onboarding completion behind a busy turn without changing generic handoffs", () => {
