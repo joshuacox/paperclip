@@ -1,5 +1,6 @@
 import {
   chmod,
+  copyFile,
   cp,
   mkdir,
   lstat,
@@ -7,6 +8,7 @@ import {
   readFile,
   readdir,
   readlink,
+  realpath,
   rename,
   rm,
   stat,
@@ -7475,6 +7477,10 @@ it("preserves prepared input through runnerd and the real OpenCode proxy boundar
     process.stdout.write(proxy.verifiedResult.outputFiles[0].contents);
   `], { maxBuffer: 16 * 1024 * 1024 });
   await writeFile(proxy, proxyBytes, { mode: 0o755 });
+  await chmod(proxy, 0o755);
+  const nodeCommand = join(root, "node");
+  await copyFile(await realpath(process.execPath), nodeCommand);
+  await chmod(nodeCommand, 0o755);
   const digest = (file: string) => `sha256:${createHash("sha256").update(readFileSync(file)).digest("hex")}`;
   const runtime = join(root, "opencode");
   const bundle = createCapabilityRunnerdCodexTransport({
@@ -7486,8 +7492,8 @@ it("preserves prepared input through runnerd and the real OpenCode proxy boundar
     opencodeCommandSha256: digest(executable),
     opencodeProxyPath: proxy,
     opencodeProxySha256: digest(proxy),
-    providerNodeCommand: process.execPath,
-    providerNodeCommandSha256: digest(process.execPath),
+    providerNodeCommand: nodeCommand,
+    providerNodeCommandSha256: digest(nodeCommand),
     environment: { PATH: process.env.PATH, OPENROUTER_API_KEY: "fixture-key" },
   });
   const task = createCodexTaskEnvelope({
