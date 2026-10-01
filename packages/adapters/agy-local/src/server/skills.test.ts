@@ -14,6 +14,7 @@ import {
   syncSkillsForRun,
   describeRunSkillSync,
   SKILL_SYNC_LOG_PREFIX,
+  unlinkSkillDirectory,
 } from "./skills.js";
 
 const AGENT_ID = "30223245-91b7-48df-bedb-5f5049b05c38";
@@ -803,4 +804,41 @@ describe("syncSkillsForRun and receipts", () => {
       await fs.rm(tmp, { recursive: true, force: true });
     }
   });
+
+  describe("unlinkSkillDirectory", () => {
+    it("unlinks a symbolic link without affecting the target directory", async () => {
+      const tmp = await makeTempDir();
+      try {
+        const sourceDir = path.join(tmp, "source-skill");
+        await writeSkillSource(tmp, "source-skill", "Skill content");
+        const linkPath = path.join(tmp, "linked-skill");
+        await linkSkillDirectory(sourceDir, linkPath);
+
+        expect(await fs.lstat(linkPath).then((s) => s.isSymbolicLink())).toBe(true);
+
+        await unlinkSkillDirectory(linkPath);
+
+        expect(await fs.lstat(linkPath).catch(() => null)).toBeNull();
+        expect(await fs.readFile(path.join(sourceDir, "SKILL.md"), "utf8")).toContain("Skill content");
+      } finally {
+        await fs.rm(tmp, { recursive: true, force: true });
+      }
+    });
+
+    it("refuses to delete a real directory and leaves its contents intact", async () => {
+      const tmp = await makeTempDir();
+      try {
+        const realDir = path.join(tmp, "real-skill");
+        await writeSkillSource(tmp, "real-skill", "Real skill content");
+
+        await expect(unlinkSkillDirectory(realDir)).rejects.toThrow(/Cannot unlink non-symlink/);
+
+        // Contents must remain completely intact
+        expect(await fs.readFile(path.join(realDir, "SKILL.md"), "utf8")).toContain("Real skill content");
+      } finally {
+        await fs.rm(tmp, { recursive: true, force: true });
+      }
+    });
+  });
 });
+

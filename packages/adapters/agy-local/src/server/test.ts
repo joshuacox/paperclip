@@ -123,15 +123,18 @@ export async function testEnvironment(
     const dangerouslySkipPermissions = asBoolean(config.dangerouslySkipPermissions, false);
     const helloProbeTimeoutSec = Math.max(1, asNumber(config.helloProbeTimeoutSec, 60));
     const extraArgs = asStringArray(config.extraArgs);
+    const inputFormat = asString(config.inputFormat, "stream-json").trim().toLowerCase();
+    const useStreamJsonInput = inputFormat !== "text";
 
     const args = [
-      "--print",
-      "Respond with hello.",
       "--output-format",
       "stream-json",
       "--input-format",
-      "text",
+      useStreamJsonInput ? "stream-json" : "text",
     ];
+    if (!useStreamJsonInput) {
+      args.push("--print", "Respond with hello.");
+    }
     if (sandbox) args.push("--sandbox");
     if (agentPersona) args.push("--agent", agentPersona);
     if (model) args.push("--model", model);
@@ -139,6 +142,10 @@ export async function testEnvironment(
     if (mode) args.push("--mode", mode);
     if (dangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
     if (extraArgs.length > 0) args.push(...extraArgs);
+
+    const stdin = useStreamJsonInput
+      ? JSON.stringify({ event: "user", message: { content: "Respond with hello." } }) + "\n"
+      : undefined;
 
     const probe = await runAdapterExecutionTargetProcess(
       runId,
@@ -148,6 +155,7 @@ export async function testEnvironment(
       {
         cwd,
         env,
+        stdin,
         timeoutSec: helloProbeTimeoutSec,
         graceSec: 5,
         onLog: async () => {},

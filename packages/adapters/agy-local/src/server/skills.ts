@@ -57,9 +57,20 @@ export async function linkSkillDirectory(source: string, target: string): Promis
 }
 
 export async function unlinkSkillDirectory(target: string): Promise<void> {
+  const stat = await fs.lstat(target);
+  if (!stat.isSymbolicLink()) {
+    const err = new Error(`Cannot unlink non-symlink: ${target}`);
+    (err as NodeJS.ErrnoException).code = process.platform === "win32" ? "EPERM" : "EISDIR";
+    throw err;
+  }
   if (process.platform === "win32") {
-    await fs.rm(target, { recursive: true, force: true });
-    return;
+    try {
+      await fs.unlink(target);
+      return;
+    } catch {
+      await fs.rmdir(target);
+      return;
+    }
   }
   await fs.unlink(target);
 }

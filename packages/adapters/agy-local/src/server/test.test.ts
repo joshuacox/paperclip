@@ -79,7 +79,7 @@ describe("agy-local testEnvironment", () => {
     };
   });
 
-  it("omits --mode when mode is unset (matching execute default mode) and probes without --dangerously-skip-permissions by default", async () => {
+  it("omits --mode when mode is unset (matching execute default mode) and probes with default stream-json input without --dangerously-skip-permissions", async () => {
     const ctx: AdapterEnvironmentTestContext = {
       companyId: "company-1",
       adapterType: "agy_local",
@@ -92,10 +92,36 @@ describe("agy-local testEnvironment", () => {
 
     expect(capturedRuns).toHaveLength(1);
     const args = capturedRuns[0].args;
-    expect(args).toContain("--print");
-    expect(args).toContain("Respond with hello.");
+    expect(args).toContain("--input-format");
+    expect(args[args.indexOf("--input-format") + 1]).toBe("stream-json");
+    expect(args).not.toContain("--print");
     expect(args).not.toContain("--mode");
     expect(args).not.toContain("--dangerously-skip-permissions");
+    expect(capturedRuns[0].options.stdin).toBe(
+      JSON.stringify({ event: "user", message: { content: "Respond with hello." } }) + "\n",
+    );
+  });
+
+  it("passes --print and text input format when inputFormat is explicitly set to text", async () => {
+    const ctx: AdapterEnvironmentTestContext = {
+      companyId: "company-1",
+      adapterType: "agy_local",
+      config: {
+        inputFormat: "text",
+      },
+    };
+
+    const result = await testEnvironment(ctx);
+    expect(result.status).toBe("pass");
+    expect(result.checks.some((c) => c.code === "agy_hello_probe_passed")).toBe(true);
+
+    expect(capturedRuns).toHaveLength(1);
+    const args = capturedRuns[0].args;
+    expect(args).toContain("--input-format");
+    expect(args[args.indexOf("--input-format") + 1]).toBe("text");
+    expect(args).toContain("--print");
+    expect(args).toContain("Respond with hello.");
+    expect(capturedRuns[0].options.stdin).toBeUndefined();
   });
 
   it("passes configured plan mode when explicitly set", async () => {
