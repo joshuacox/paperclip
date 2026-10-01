@@ -5,6 +5,7 @@ import path from "node:path";
 
 import {
   AGY_WORKSPACE_SKILL_SUBPATH,
+  linkSkillDirectory,
   listSkills,
   migrateLegacySkills,
   resolveAgySkillRoot,
@@ -423,8 +424,8 @@ describe("listSkills and syncSkills", () => {
       const c2Source = await writeSkillSource(path.join(tmp, "skills", "c2"), "beta", "Company 2 Beta");
 
       // In legacy root, symlinks existed for both
-      await fs.symlink(c1Source, path.join(legacySkillsDir, "alpha"));
-      await fs.symlink(c2Source, path.join(legacySkillsDir, "beta"));
+      await linkSkillDirectory(c1Source, path.join(legacySkillsDir, "alpha"));
+      await linkSkillDirectory(c2Source, path.join(legacySkillsDir, "beta"));
 
       // Also create custom directories with explicit company metadata
       await writeSkillSource(legacySkillsDir, "c1-custom", "Custom for C1", { companyId: "c1" });
@@ -498,7 +499,7 @@ describe("listSkills and syncSkills", () => {
       const c2Source = await writeSkillSource(path.join(tmp, "c2-src"), "calc", "C2 Calculator");
 
       // In legacy, the symlink pointed to C2's source
-      await fs.symlink(c2Source, path.join(legacySkillsDir, "calc"));
+      await linkSkillDirectory(c2Source, path.join(legacySkillsDir, "calc"));
 
       const agent1Id = "agent-c1-0001";
       const agent2Id = "agent-c2-0002";
