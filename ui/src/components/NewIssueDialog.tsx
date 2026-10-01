@@ -406,7 +406,7 @@ const IssueTitleTextarea = memo(function IssueTitleTextarea({
   return (
     <textarea
       className="w-full text-lg font-semibold bg-transparent outline-none resize-none overflow-hidden placeholder:text-muted-foreground/50"
-      placeholder="Task title"
+      placeholder="Task title (optional)"
       rows={1}
       value={draftValue}
       onChange={(e) => {
@@ -498,7 +498,6 @@ export function NewIssueDialog() {
   const [description, setDescription] = useState("");
   const titleRef = useRef("");
   const descriptionRef = useRef("");
-  const [titleHasText, setTitleHasText] = useState(false);
   const [draftHasText, setDraftHasText] = useState(false);
   const [status, setStatus] = useState("todo");
   const [priority, setPriority] = useState("");
@@ -710,7 +709,7 @@ export function NewIssueDialog() {
     (draft: IssueDraft) => {
       if (draftTimer.current) clearTimeout(draftTimer.current);
       draftTimer.current = setTimeout(() => {
-        if (draft.title.trim()) saveDraft(draft);
+        if (draft.title.trim() || draft.description.trim()) saveDraft(draft);
       }, DEBOUNCE_MS);
     },
     [],
@@ -721,7 +720,6 @@ export function NewIssueDialog() {
     descriptionRef.current = nextDescription;
     setTitle(nextTitle);
     setDescription(nextDescription);
-    setTitleHasText(nextTitle.trim().length > 0);
     setDraftHasText(nextTitle.trim().length > 0 || nextDescription.trim().length > 0);
   }, []);
 
@@ -773,7 +771,6 @@ export function NewIssueDialog() {
     titleRef.current = nextTitle;
     const nextTitleHasText = nextTitle.trim().length > 0;
     const nextDraftHasText = nextTitleHasText || descriptionRef.current.trim().length > 0;
-    setTitleHasText((current) => current === nextTitleHasText ? current : nextTitleHasText);
     setDraftHasText((current) => current === nextDraftHasText ? current : nextDraftHasText);
     queueDraftSave({ title: nextTitle });
   }, [queueDraftSave]);
@@ -847,9 +844,9 @@ export function NewIssueDialog() {
       executionWorkspaceDefaultProjectId.current = hasExplicitProjectWorkspaceId || defaultProject
         ? defaultProjectId || null
         : null;
-    } else if (newIssueDefaults.title) {
+    } else if (newIssueDefaults.title || newIssueDefaults.description) {
       const nextWorkMode = isIssueWorkMode(newIssueDefaults.workMode) ? newIssueDefaults.workMode : "standard";
-      setIssueText(newIssueDefaults.title, newIssueDefaults.description ?? "");
+      setIssueText(newIssueDefaults.title ?? "", newIssueDefaults.description ?? "");
       setStatus(newIssueDefaults.status ?? "todo");
       setPriority(newIssueDefaults.priority ?? "");
       const defaultProjectId = newIssueDefaults.projectId ?? "";
@@ -874,7 +871,7 @@ export function NewIssueDialog() {
       executionWorkspaceDefaultProjectId.current = hasExplicitProjectWorkspaceId || newIssueDefaults.executionWorkspaceId || defaultProject
         ? defaultProjectId || null
         : null;
-    } else if (draft && draft.title.trim()) {
+    } else if (draft && (draft.title.trim() || draft.description.trim())) {
       const nextWorkMode = isIssueWorkMode(draft.workMode) ? draft.workMode : "standard";
       const restoredProjectId = newIssueDefaults.projectId ?? draft.projectId;
       const restoredProject = orderedProjects.find((project) => project.id === restoredProjectId);
@@ -1047,7 +1044,7 @@ export function NewIssueDialog() {
   function handleSubmit() {
     const currentTitle = titleRef.current.trim();
     const currentDescription = descriptionRef.current.trim();
-    if (!effectiveCompanyId || !currentTitle || createIssue.isPending) return;
+    if (!effectiveCompanyId || (!currentTitle && !currentDescription) || createIssue.isPending) return;
     const assigneeAdapterOverrides = buildAssigneeAdapterOverrides({
       adapterType: assigneeAdapterType,
       lane: assigneeModelLane,
@@ -1084,7 +1081,7 @@ export function NewIssueDialog() {
     createIssue.mutate({
       companyId: effectiveCompanyId,
       stagedFiles,
-      title: currentTitle,
+      ...(currentTitle ? { title: currentTitle } : {}),
       description: currentDescription || undefined,
       status,
       priority: priority || "medium",
@@ -2370,7 +2367,7 @@ export function NewIssueDialog() {
             <Button
               size="sm"
               className="min-w-(--sz-8_5rem) disabled:opacity-100"
-              disabled={!titleHasText || createIssue.isPending}
+              disabled={!draftHasText || createIssue.isPending}
               onClick={handleSubmit}
               aria-busy={createIssue.isPending}
             >
