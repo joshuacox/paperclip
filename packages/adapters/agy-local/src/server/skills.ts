@@ -56,6 +56,14 @@ export async function linkSkillDirectory(source: string, target: string): Promis
   await fs.symlink(source, target);
 }
 
+export async function unlinkSkillDirectory(target: string): Promise<void> {
+  if (process.platform === "win32") {
+    await fs.rm(target, { recursive: true, force: true });
+    return;
+  }
+  await fs.unlink(target);
+}
+
 export const ADAPTER_TYPE = "agy_local";
 
 /** Path segment agy scans for skills beneath every `--add-dir` root. */
@@ -414,8 +422,8 @@ export async function migrateLegacySkills(
         try {
           if (entry.isSymbolicLink()) {
             const linkTarget = await fs.readlink(src);
-            await fs.symlink(linkTarget, dest);
-            await fs.unlink(src);
+            await linkSkillDirectory(linkTarget, dest);
+            await unlinkSkillDirectory(src);
           } else {
             await fs.cp(src, dest, { recursive: true });
             await fs.rm(src, { recursive: true, force: true });
@@ -483,7 +491,12 @@ export async function syncAgySkills(
     }
     const target = path.join(root.skillsHome, entry.runtimeName);
     try {
-      const outcome = await ensurePaperclipSkillSymlink(entry.source, target, linkSkillDirectory);
+      const outcome = await ensurePaperclipSkillSymlink(
+        entry.source,
+        target,
+        linkSkillDirectory,
+        unlinkSkillDirectory,
+      );
       if (outcome === "skipped") {
         const existing = await fs.lstat(target).catch(() => null);
         if (existing && !existing.isSymbolicLink()) {
@@ -507,7 +520,7 @@ export async function syncAgySkills(
     if (!installedEntry.targetPath || !managedSources.has(installedEntry.targetPath)) continue;
     const entry = availableEntries.find((candidate) => candidate.runtimeName === runtimeName);
     if (entry && desiredSet.has(entry.key)) continue;
-    await fs.unlink(path.join(root.skillsHome, runtimeName)).catch(() => {});
+    await unlinkSkillDirectory(path.join(root.skillsHome, runtimeName)).catch(() => {});
   }
 
   const installed = await readInstalledSkillTargets(root.skillsHome);
@@ -612,7 +625,12 @@ export async function ensureAgySkillsInjected(
   for (const entry of selectedEntries) {
     const target = path.join(skillsHome, entry.runtimeName);
     try {
-      const result = await ensurePaperclipSkillSymlink(entry.source, target);
+      const result = await ensurePaperclipSkillSymlink(
+        entry.source,
+        target,
+        linkSkillDirectory,
+        unlinkSkillDirectory,
+      );
       if (result === "skipped") continue;
       await onLog(
         "stdout",

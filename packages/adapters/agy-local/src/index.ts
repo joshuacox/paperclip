@@ -51,6 +51,7 @@ Core fields:
 - dangerouslySkipPermissions (boolean, optional, default false): allow non-interactive tool calls without prompting
 - project (string, optional): Antigravity project ID or project name passed via --project
 - printTimeout (string, optional): CLI print mode timeout (e.g. "15m", "30m", "1h"); defaults to aligned Paperclip timeoutSec or 24h
+- inputFormat (string, optional): input mode; defaults to "stream-json" and sends the prompt over stdin, or use "text" for legacy --print delivery
 - disableSlashCommands (boolean, optional): disable slash command and skill expansion in print mode (--disable-slash-commands)
 - agent (string, optional): optional Antigravity subagent persona name passed via --agent <name>
 - sandbox (boolean, optional): run in sandbox with terminal restrictions enabled (--sandbox)
@@ -67,7 +68,7 @@ Operational fields:
 - graceSec (number, optional): SIGTERM grace period in seconds
 
 Notes:
-- Runs execute via non-interactive print mode: \`agy --print <prompt> --output-format stream-json --input-format text\`.
+- Runs execute via non-interactive stream mode by default: \`agy --output-format stream-json --input-format stream-json\`; prompts are sent over stdin to avoid command-line length and process-table exposure. Set inputFormat to "text" only for legacy \`--print <prompt>\` delivery.
 - Sessions are maintained using \`--conversation <id>\` and automatically retried if a session is missing.
 - Workspace directory is added to Antigravity's context via \`--add-dir <cwd>\`.
 - Skills are delivered to Antigravity via an extra \`--add-dir\` pointing to the agent's isolated skill root, avoiding workspace repo pollution.
