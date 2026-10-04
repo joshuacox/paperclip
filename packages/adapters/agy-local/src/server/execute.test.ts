@@ -49,7 +49,7 @@ describe("agy-local execute", () => {
         adapterType: "agy_local",
         adapterConfig: {
           mode: "plan",
-          model: "gemini-3.7-flash-high",
+          model: "claude-sonnet-4-6",
           effort: "high",
           dangerouslySkipPermissions: true,
         },
@@ -81,10 +81,53 @@ describe("agy-local execute", () => {
     expect(commandArgs).toContain("--mode");
     expect(commandArgs[commandArgs.indexOf("--mode") + 1]).toBe("plan");
     expect(commandArgs).toContain("--model");
-    expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("gemini-3.7-flash-high");
+    expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("claude-sonnet-4-6");
     expect(commandArgs).toContain("--effort");
     expect(commandArgs[commandArgs.indexOf("--effort") + 1]).toBe("high");
     expect(commandArgs).toContain("--dangerously-skip-permissions");
+  });
+
+  it("omits --effort when model already contains an effort suffix", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-model-effort-suffix",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Test Agent",
+        adapterType: "agy_local",
+        adapterConfig: {
+          model: "gemini-3.8-flash-high",
+          effort: "high",
+        },
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: "/tmp/workspace",
+        },
+      },
+      onLog: async () => {},
+      onMeta: async (meta) => {
+        capturedMeta = meta;
+      },
+    };
+
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+
+    expect(capturedMeta).not.toBeNull();
+    const commandArgs = capturedMeta!.commandArgs as string[];
+    expect(commandArgs).toContain("--model");
+    expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("gemini-3.8-flash-high");
+    expect(commandArgs).not.toContain("--effort");
   });
 
   it("passes --conversation when resuming a previous session", async () => {

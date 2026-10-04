@@ -201,7 +201,7 @@ describe("agy-local testEnvironment", () => {
       config: {
         agent: "flutter_a11y_agent",
         sandbox: true,
-        model: "gemini-3.7-flash-high",
+        model: "claude-sonnet-4-6",
         effort: "high",
         extraArgs: ["--custom-flag", "value"],
       },
@@ -216,11 +216,31 @@ describe("agy-local testEnvironment", () => {
     expect(args).toContain("--agent");
     expect(args[args.indexOf("--agent") + 1]).toBe("flutter_a11y_agent");
     expect(args).toContain("--model");
-    expect(args[args.indexOf("--model") + 1]).toBe("gemini-3.7-flash-high");
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-4-6");
     expect(args).toContain("--effort");
     expect(args[args.indexOf("--effort") + 1]).toBe("high");
     expect(args).toContain("--custom-flag");
     expect(args[args.indexOf("--custom-flag") + 1]).toBe("value");
+  });
+
+  it("omits --effort when model has effort suffix in testEnvironment", async () => {
+    const ctx: AdapterEnvironmentTestContext = {
+      companyId: "company-1",
+      adapterType: "agy_local",
+      config: {
+        model: "gemini-3.8-flash-high",
+        effort: "high",
+      },
+    };
+
+    const result = await testEnvironment(ctx);
+    expect(result.status).toBe("pass");
+
+    expect(capturedRuns).toHaveLength(1);
+    const args = capturedRuns[0].args;
+    expect(args).toContain("--model");
+    expect(args[args.indexOf("--model") + 1]).toBe("gemini-3.8-flash-high");
+    expect(args).not.toContain("--effort");
   });
 
   it("records a warning if probe times out", async () => {

@@ -347,7 +347,7 @@ describe("listSkills and syncSkills", () => {
     try {
       const rootPath = path.join(tmp, "custom-root");
       const legacySkillsDir = path.join(rootPath, ".agents", "skills");
-      await writeSkillSource(legacySkillsDir, "custom-legacy", "Legacy operator skill");
+      await writeSkillSource(legacySkillsDir, "custom-legacy", "Legacy operator skill", { companyId: "c1" });
 
       const config = {
         skillsRootPath: rootPath,
@@ -380,7 +380,7 @@ describe("listSkills and syncSkills", () => {
       const alpha = await writeSkillSource(path.join(tmp, "src"), "alpha", "Alpha skill");
       const rootPath = path.join(tmp, "custom-root");
       const legacySkillsDir = path.join(rootPath, ".agents", "skills");
-      await writeSkillSource(legacySkillsDir, "custom-legacy", "Legacy operator skill");
+      await writeSkillSource(legacySkillsDir, "custom-legacy", "Legacy operator skill", { companyId: "c1" });
 
       const config = skillConfig(
         { "paperclipai/paperclip/alpha": alpha },
@@ -538,6 +538,51 @@ describe("listSkills and syncSkills", () => {
 
       // Now legacy is cleaned up
       expect(await fs.lstat(legacySkillsDir).catch(() => null)).toBeNull();
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves unmarked skills in shared legacy root across multiple companies", async () => {
+    const tmp = await makeTempDir();
+    try {
+      const rootPath = path.join(tmp, "shared-custom-root");
+      const legacySkillsDir = path.join(rootPath, ".agents", "skills");
+      await writeSkillSource(legacySkillsDir, "unmarked-shared", "Unmarked shared skill");
+
+      const agent1Id = "agent-c1-0001";
+      const agent2Id = "agent-c2-0002";
+
+      const c1Config = skillConfig({}, { skillsRootPath: rootPath });
+      const c2Config = skillConfig({}, { skillsRootPath: rootPath });
+
+      // Company 1 syncs skills
+      await syncSkills(
+        { agentId: agent1Id, companyId: "c1", adapterType: "agy_local", config: c1Config },
+        [],
+      );
+
+      const agent1SkillsHome = path.join(rootPath, agent1Id, ".agents", "skills");
+      expect(
+        await fs.readFile(path.join(agent1SkillsHome, "unmarked-shared", "SKILL.md"), "utf8"),
+      ).toMatch(/Unmarked shared skill/);
+
+      // Legacy root MUST still contain unmarked-shared so Company 2 is not deprived of it!
+      expect(await fs.lstat(path.join(legacySkillsDir, "unmarked-shared")).catch(() => null)).not.toBeNull();
+
+      // Company 2 syncs skills
+      await syncSkills(
+        { agentId: agent2Id, companyId: "c2", adapterType: "agy_local", config: c2Config },
+        [],
+      );
+
+      const agent2SkillsHome = path.join(rootPath, agent2Id, ".agents", "skills");
+      expect(
+        await fs.readFile(path.join(agent2SkillsHome, "unmarked-shared", "SKILL.md"), "utf8"),
+      ).toMatch(/Unmarked shared skill/);
+
+      // Still preserved in legacy root for any future agents / companies
+      expect(await fs.lstat(path.join(legacySkillsDir, "unmarked-shared")).catch(() => null)).not.toBeNull();
     } finally {
       await fs.rm(tmp, { recursive: true, force: true });
     }
@@ -756,7 +801,7 @@ describe("syncSkillsForRun and receipts", () => {
     try {
       const rootPath = path.join(tmp, "custom-root");
       const legacySkillsDir = path.join(rootPath, ".agents", "skills");
-      await writeSkillSource(legacySkillsDir, "custom-legacy", "Legacy operator skill");
+      await writeSkillSource(legacySkillsDir, "custom-legacy", "Legacy operator skill", { companyId: "c1" });
 
       const result = await syncSkillsForRun({
         agentId: AGENT_ID,

@@ -424,25 +424,66 @@ export async function migrateLegacySkills(
       continue;
     }
 
-    try {
-      await fs.rename(src, dest);
-      migrated.push(entry.name);
-    } catch (err: unknown) {
-      const code = (err as { code?: string })?.code;
-      if (code === "EXDEV") {
-        try {
-          if (entry.isSymbolicLink()) {
-            const linkTarget = await fs.readlink(src);
-            await linkSkillDirectory(linkTarget, dest);
-            await unlinkSkillDirectory(src);
-          } else {
-            await fs.cp(src, dest, { recursive: true });
-            await fs.rm(src, { recursive: true, force: true });
+    const currentCompanyId = effectiveOptions.companyId?.trim() || null;
+    let isExplicitlyCompanyOwned = false;
+
+    if (entry.isSymbolicLink()) {
+      try {
+        const linkTarget = await fs.readlink(src);
+        const resolvedTarget = path.resolve(path.dirname(src), linkTarget);
+        if (effectiveOptions.availableEntries?.some((e) => path.resolve(e.source) === resolvedTarget)) {
+          isExplicitlyCompanyOwned = true;
+        } else {
+          const targetDirCompanyId = await readSkillDirectoryCompanyId(resolvedTarget);
+          if (targetDirCompanyId && currentCompanyId && targetDirCompanyId === currentCompanyId) {
+            isExplicitlyCompanyOwned = true;
           }
-          migrated.push(entry.name);
-        } catch {
-          // best-effort
         }
+      } catch {
+        // failed reading symlink
+      }
+    } else {
+      const dirCompanyId = await readSkillDirectoryCompanyId(src);
+      if (dirCompanyId && currentCompanyId && dirCompanyId === currentCompanyId) {
+        isExplicitlyCompanyOwned = true;
+      }
+    }
+
+    if (isExplicitlyCompanyOwned) {
+      try {
+        await fs.rename(src, dest);
+        migrated.push(entry.name);
+      } catch (err: unknown) {
+        const code = (err as { code?: string })?.code;
+        if (code === "EXDEV") {
+          try {
+            if (entry.isSymbolicLink()) {
+              const linkTarget = await fs.readlink(src);
+              await linkSkillDirectory(linkTarget, dest);
+              await unlinkSkillDirectory(src);
+            } else {
+              await fs.cp(src, dest, { recursive: true });
+              await fs.rm(src, { recursive: true, force: true });
+            }
+            migrated.push(entry.name);
+          } catch {
+            // best-effort
+          }
+        }
+      }
+    } else {
+      // Unmarked or operator-provided shared skill: copy to agent's skillsHome
+      // and keep the original in legacySkillsHome so other companies can also access it.
+      try {
+        if (entry.isSymbolicLink()) {
+          const linkTarget = await fs.readlink(src);
+          await linkSkillDirectory(linkTarget, dest);
+        } else {
+          await fs.cp(src, dest, { recursive: true });
+        }
+        migrated.push(entry.name);
+      } catch {
+        // best-effort
       }
     }
   }

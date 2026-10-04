@@ -447,7 +447,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (model) {
       args.push("--model", model);
     }
-    if (effort) {
+    if (effort && !modelHasEffortSuffix(model)) {
       args.push("--effort", effort);
     }
     if (mode) {
