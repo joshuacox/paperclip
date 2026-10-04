@@ -7,7 +7,7 @@ import { readPaperclipSkillSyncPreference, writePaperclipSkillSyncPreference } f
 import { and, desc, eq, ne } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { activityLog, agents, builtInManagedResources, companies, issueThreadInteractions, issues, routines, routineTriggers } from "@paperclipai/db";
-import { syncRoutineVariablesWithTemplate } from "@paperclipai/shared";
+import { adapterSupportsAiConnections, syncRoutineVariablesWithTemplate } from "@paperclipai/shared";
 import type { Agent, Approval, CompanySkill, PermissionKey, Routine, RoutineTrigger, RoutineVariable } from "@paperclipai/shared";
 import { conflict, HttpError, notFound, unprocessable } from "../errors.js";
 import { logActivity } from "./activity-log.js";
@@ -1762,6 +1762,11 @@ export function builtInAgentService(db: Db) {
         assertAdapterAllowed(definition, adapterType);
         patch.adapterType = adapterType;
         patch.adapterConfig = resolvedInput.adapterConfig ?? existing.adapterConfig;
+        if (!adapterSupportsAiConnections(adapterType) && existing.runtimeConfig?.aiConnection) {
+          const nextRc = { ...existing.runtimeConfig };
+          delete nextRc.aiConnection;
+          patch.runtimeConfig = nextRc;
+        }
       }
       if (!existingPendingApproval && resolvedInput.budgetMonthlyCents !== undefined) {
         patch.budgetMonthlyCents = resolvedInput.budgetMonthlyCents;

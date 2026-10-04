@@ -450,6 +450,29 @@ describeEmbeddedPostgres("built-in agents", () => {
     expect(state.agent?.adapterConfig).toMatchObject({ model: "gemini-3.8-flash-low" });
   });
 
+  it("drops stale AI connection when reconfiguring summarizer to agy_local", async () => {
+    const companyId = await seedCompany();
+
+    const initial = await builtInAgentService(db).ensure(companyId, "summarizer");
+    expect(initial.agent?.adapterType).toBe("claude_local");
+    await db.update(agents).set({
+      runtimeConfig: {
+        aiConnection: {
+          provider: "anthropic",
+          method: "api_key",
+          mode: "responsible_user",
+        },
+      },
+    }).where(eq(agents.id, initial.agent!.id));
+
+    const updated = await builtInAgentService(db).ensure(companyId, "summarizer", {
+      adapterType: "agy_local",
+    });
+
+    expect(updated.agent?.adapterType).toBe("agy_local");
+    expect(updated.agent?.runtimeConfig.aiConnection).toBeUndefined();
+  });
+
   it("rejects unknown built-in adapter models before saving setup", async () => {
     const companyId = await seedCompany();
 

@@ -10,7 +10,7 @@ import { toolConnections } from "@paperclipai/db";
 import { aiConnectionService } from "../services/ai-connections.js";
 import { defaultAiConnectionForHire } from "../services/agent-ai-connection-default.js";
 import { assertAiConnectionCreateAccess, canInstallSharedAiConnectionForNewAgent, responsibleUserForAiRequest, validateAiApiKey } from "./ai-connections.js";
-import { isAiConnectionCompatible } from "@paperclipai/shared";
+import { isAiConnectionCompatible, adapterSupportsAiConnections } from "@paperclipai/shared";
 import { applyConnectorSkills, resolveConnectorAssignments, annotateConnectorSkills, isConnectorSkill } from "../services/connector-runtime.js";
 import { getExecutionBlocker } from "../services/execution-blocker.js";
 import { canRetryStoppedRun } from "../services/cancelled-native-startup.js";
@@ -5608,14 +5608,53 @@ export function agentRoutes(
         adapterConfig: patchData.adapterConfig,
       });
     }
-    if (existing.runtimeConfig.aiConnection && requestedRuntimeConfig && !requestedRuntimeConfig.aiConnection) requestedRuntimeConfig.aiConnection = existing.runtimeConfig.aiConnection;
-    const nextAiBinding = aiConnectionBindingSchema.safeParse(requestedRuntimeConfig?.aiConnection ?? existing.runtimeConfig.aiConnection).data;
-    if (nextAiBinding) {
-      await assertCanUpdateAgent(req, existing);
-      const changed = JSON.stringify(nextAiBinding) !== JSON.stringify(existing.runtimeConfig.aiConnection);
-      const aiConfig = (patchData.adapterConfig ?? existing.adapterConfig) as Record<string, unknown>;
-      if (!isAiConnectionCompatible(nextAiBinding, requestedAdapterType, aiConfig.model, aiConfig.provider, aiConfig.acpxAgent)) throw unprocessable("Select an AI connection compatible with the new harness and model");
-      if (changed) await validateManagedAgentBinding(req, existing.companyId, existing.id, requestedAdapterType, aiConfig, nextAiBinding, (patchData.defaultEnvironmentId !== undefined ? patchData.defaultEnvironmentId : existing.defaultEnvironmentId) as string | null, true);
+    const aiConfig = (patchData.adapterConfig ?? existing.adapterConfig) as Record<string, unknown>;
+    const targetSupportsAi = adapterSupportsAiConnections(
+      requestedAdapterType,
+      aiConfig.provider,
+      aiConfig.acpxAgent,
+    );
+    if (!targetSupportsAi) {
+      if (existing.runtimeConfig.aiConnection || requestedRuntimeConfig?.aiConnection) {
+        requestedRuntimeConfig = {
+          ...(requestedRuntimeConfig ?? existing.runtimeConfig),
+        };
+        delete requestedRuntimeConfig.aiConnection;
+        patchData.runtimeConfig = requestedRuntimeConfig;
+      }
+    } else {
+      if (requestedRuntimeConfig && requestedRuntimeConfig.aiConnection === null) {
+        const nextRc = { ...requestedRuntimeConfig };
+        delete nextRc.aiConnection;
+        requestedRuntimeConfig = nextRc;
+        patchData.runtimeConfig = nextRc;
+      } else {
+        if (existing.runtimeConfig.aiConnection && requestedRuntimeConfig && requestedRuntimeConfig.aiConnection === undefined) {
+          requestedRuntimeConfig.aiConnection = existing.runtimeConfig.aiConnection;
+        }
+        const nextAiBinding = aiConnectionBindingSchema.safeParse(
+          requestedRuntimeConfig?.aiConnection ?? existing.runtimeConfig.aiConnection,
+        ).data;
+        if (nextAiBinding) {
+          await assertCanUpdateAgent(req, existing);
+          const changed = JSON.stringify(nextAiBinding) !== JSON.stringify(existing.runtimeConfig.aiConnection);
+          if (!isAiConnectionCompatible(nextAiBinding, requestedAdapterType, aiConfig.model, aiConfig.provider, aiConfig.acpxAgent)) {
+            throw unprocessable("Select an AI connection compatible with the new harness and model");
+          }
+          if (changed) {
+            await validateManagedAgentBinding(
+              req,
+              existing.companyId,
+              existing.id,
+              requestedAdapterType,
+              aiConfig,
+              nextAiBinding,
+              (patchData.defaultEnvironmentId !== undefined ? patchData.defaultEnvironmentId : existing.defaultEnvironmentId) as string | null,
+              true,
+            );
+          }
+        }
+      }
     }
     if (requestedRuntimeConfig) patchData.runtimeConfig = requestedRuntimeConfig;
     if (touchesAdapterConfiguration || Object.prototype.hasOwnProperty.call(patchData, "defaultEnvironmentId")) {
