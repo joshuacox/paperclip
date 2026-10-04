@@ -36,6 +36,7 @@ describe("parseAgyStdoutLine", () => {
         kind: "assistant",
         ts,
         text: "Working on the task...",
+        delta: true,
       },
     ]);
   });
@@ -149,6 +150,7 @@ describe("parseAgyStdoutLine", () => {
         kind: "assistant",
         ts,
         text: "Here is the response.",
+        delta: true,
       },
     ]);
   });

@@ -108,6 +108,11 @@ describe("buildAgyConfig", () => {
     expect(config.dangerouslySkipPermissions).toBe(false);
   });
 
+  it("defaults dangerouslySkipPermissions to true when omitted", () => {
+    const config = buildAgyConfig(makeValues({ dangerouslySkipPermissions: undefined as any }));
+    expect(config.dangerouslySkipPermissions).toBe(true);
+  });
+
   it("builds git_worktree workspaceStrategy when configured", () => {
     const config = buildAgyConfig(
       makeValues({

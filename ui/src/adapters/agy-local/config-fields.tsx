@@ -131,17 +131,17 @@ export function AgyLocalConfigFields({
         hint={help.dangerouslySkipPermissions}
         checked={
           isCreate
-            ? Boolean(values?.dangerouslySkipPermissions)
+            ? values!.dangerouslySkipPermissions
             : eff(
                 "adapterConfig",
                 "dangerouslySkipPermissions",
-                Boolean(config.dangerouslySkipPermissions),
+                config.dangerouslySkipPermissions !== false,
               )
         }
         onChange={(v) =>
           isCreate
             ? set!({ dangerouslySkipPermissions: v })
-            : mark("adapterConfig", "dangerouslySkipPermissions", v ? true : undefined)
+            : mark("adapterConfig", "dangerouslySkipPermissions", v)
         }
       />
       <Field

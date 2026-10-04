@@ -314,7 +314,7 @@ const DEFINITIONS = validateBuiltInAgentDefinitions([
     defaultInstructions:
       "You are Paperclip's built-in Briefs agent. Produce concise, sourced operational briefs that help the board understand current company work, risks, and next actions.",
     defaultRole: "general",
-    allowedAdapterTypes: ["codex_local", "claude_local", "gemini_local", "opencode_local", "process"],
+    allowedAdapterTypes: ["codex_local", "claude_local", "gemini_local", "opencode_local", "agy_local", "process"],
     defaultBudgetMonthlyCents: 0,
   },
   {
@@ -325,7 +325,7 @@ const DEFINITIONS = validateBuiltInAgentDefinitions([
     defaultInstructions:
       "You are Paperclip's built-in Learning agent. Extract durable lessons from completed work, preserve useful patterns, and keep learning artifacts grounded in source context.",
     defaultRole: "general",
-    allowedAdapterTypes: ["codex_local", "claude_local", "gemini_local", "opencode_local", "process"],
+    allowedAdapterTypes: ["codex_local", "claude_local", "gemini_local", "opencode_local", "agy_local", "process"],
     defaultBudgetMonthlyCents: 0,
   },
   {
@@ -349,7 +349,7 @@ const DEFINITIONS = validateBuiltInAgentDefinitions([
     },
     defaultStatus: "paused",
     defaultManager: "single_root_agent",
-    allowedAdapterTypes: ["claude_local", "codex_local", "gemini_local", "opencode_local", "process"],
+    allowedAdapterTypes: ["claude_local", "codex_local", "gemini_local", "opencode_local", "agy_local", "process"],
     defaultBudgetMonthlyCents: 0,
     bundle: {
       stockVersion: "2026-07-08",
@@ -417,7 +417,7 @@ const DEFINITIONS = validateBuiltInAgentDefinitions([
     },
     defaultStatus: "paused",
     defaultManager: "single_root_agent",
-    allowedAdapterTypes: ["claude_local", "codex_local", "gemini_local", "opencode_local", "process"],
+    allowedAdapterTypes: ["claude_local", "codex_local", "gemini_local", "opencode_local", "agy_local", "process"],
     defaultAdapterType: "claude_local",
     defaultAdapterConfig: {
       model: "claude-haiku-4-5",
@@ -727,6 +727,13 @@ function builtInMetadata(definition: BuiltInAgentDefinition, existing?: Record<s
   });
 }
 
+function defaultAdapterConfigFor(definition: BuiltInAgentDefinition, adapterType: string): Record<string, unknown> {
+  if (adapterType === "agy_local" && definition.key === "summarizer") {
+    return { model: "gemini-3.8-flash-low" };
+  }
+  return definition.defaultAdapterConfig ?? {};
+}
+
 function definitionPatch(definition: BuiltInAgentDefinition, input: BuiltInAgentProvisionInput = {}) {
   const adapterType = input.adapterType ?? defaultAdapterType(definition);
   assertAdapterAllowed(definition, adapterType);
@@ -737,7 +744,7 @@ function definitionPatch(definition: BuiltInAgentDefinition, input: BuiltInAgent
     icon: definition.defaultIcon ?? null,
     capabilities: definition.shortPurpose,
     adapterType,
-    adapterConfig: input.adapterConfig ?? definition.defaultAdapterConfig ?? {},
+    adapterConfig: input.adapterConfig ?? defaultAdapterConfigFor(definition, adapterType),
     permissions: definition.defaultPermissions ?? {},
     budgetMonthlyCents: input.budgetMonthlyCents ?? definition.defaultBudgetMonthlyCents ?? 0,
   };
@@ -748,7 +755,7 @@ async function assertKnownBuiltInAgentModel(
   input: BuiltInAgentProvisionInput,
 ) {
   const adapterType = input.adapterType ?? defaultAdapterType(definition);
-  const adapterConfig = input.adapterConfig ?? definition.defaultAdapterConfig ?? {};
+  const adapterConfig = input.adapterConfig ?? defaultAdapterConfigFor(definition, adapterType);
   const model = typeof adapterConfig.model === "string" ? adapterConfig.model.trim() : "";
   if (!model || !hasCompleteAdapterConfig(adapterType, adapterConfig)) return;
 

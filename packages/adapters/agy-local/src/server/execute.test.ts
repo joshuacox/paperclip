@@ -238,7 +238,7 @@ describe("agy-local execute", () => {
     expect(commandArgs[commandArgs.indexOf("--json-schema") + 1]).toBe('{"type":"object"}');
   });
 
-  it("omits --dangerously-skip-permissions by default when dangerouslySkipPermissions is omitted", async () => {
+  it("includes --dangerously-skip-permissions by default when dangerouslySkipPermissions is omitted", async () => {
     let capturedMeta: AdapterInvocationMeta | null = null;
 
     const ctx: AdapterExecutionContext = {
@@ -273,7 +273,7 @@ describe("agy-local execute", () => {
 
     expect(capturedMeta).not.toBeNull();
     const commandArgs = capturedMeta!.commandArgs as string[];
-    expect(commandArgs).not.toContain("--dangerously-skip-permissions");
+    expect(commandArgs).toContain("--dangerously-skip-permissions");
   });
 
   it("omits --dangerously-skip-permissions when dangerouslySkipPermissions is false", async () => {

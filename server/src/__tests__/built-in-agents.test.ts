@@ -433,9 +433,21 @@ describeEmbeddedPostgres("built-in agents", () => {
       details: {
         code: "built_in_agent_adapter_not_allowed",
         key: "briefs",
-        allowedAdapterTypes: ["codex_local", "claude_local", "gemini_local", "opencode_local", "process"],
+        allowedAdapterTypes: ["codex_local", "claude_local", "gemini_local", "opencode_local", "agy_local", "process"],
       },
     });
+  });
+
+  it("allows provisioning summarizer with agy_local defaulting to gemini-3.8-flash-low", async () => {
+    const companyId = await seedCompany();
+
+    const state = await builtInAgentService(db).ensure(companyId, "summarizer", {
+      adapterType: "agy_local",
+    });
+
+    expect(state.status).toBe("paused");
+    expect(state.agent?.adapterType).toBe("agy_local");
+    expect(state.agent?.adapterConfig).toMatchObject({ model: "gemini-3.8-flash-low" });
   });
 
   it("rejects unknown built-in adapter models before saving setup", async () => {
