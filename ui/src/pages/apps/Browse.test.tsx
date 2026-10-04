@@ -18,9 +18,11 @@ const navigateMock = vi.hoisted(() => vi.fn());
 const setBreadcrumbsMock = vi.hoisted(() => vi.fn());
 const experimentalMock = vi.hoisted(() => vi.fn());
 const chatSetupMock = vi.hoisted(() => vi.fn());
+const emailControlMock = vi.hoisted(() => vi.fn());
 const chatListMock = vi.hoisted(() => vi.fn());
 vi.mock("@/api/instanceSettings", () => ({ instanceSettingsApi: { getExperimental: experimentalMock } }));
 vi.mock("@/api/chatEndpoints", () => ({ chatEndpointsApi: { list: chatListMock, setup: chatSetupMock } }));
+vi.mock("@/api/email", () => ({ emailApi: { control: emailControlMock } }));
 
 vi.mock("@/api/tools", () => ({
   toolsApi: {
@@ -137,6 +139,7 @@ describe("Connectors landing page", () => {
     experimentalMock.mockResolvedValue({ enableChatConnectors: true });
     chatListMock.mockResolvedValue([]);
     chatSetupMock.mockReset().mockResolvedValue({ status: "archived" });
+    emailControlMock.mockReset().mockResolvedValue({ status: "archived" });
     listGalleryMock.mockResolvedValue({
       apps: [
         galleryEntry({
@@ -349,20 +352,41 @@ describe("Connectors landing page", () => {
 
   it("defaults to tools-only GitHub and hides chat-only catalog and existing chat accounts", async () => {
     experimentalMock.mockResolvedValue({});
-    listGalleryMock.mockResolvedValue({ apps: ["github", "github-code-review-bot", "discord", "telegram", "microsoft-teams"].map(getAppStoreDefinition) });
+    listGalleryMock.mockResolvedValue({ apps: ["agentmail", "github", "github-code-review-bot", "discord", "telegram", "microsoft-teams"].map(getAppStoreDefinition) });
     listApplicationsMock.mockResolvedValue({ applications: [application({
       id: "chat-app", type: "chat", name: "Private bot", applicationKey: "chat:github:endpoint-1", metadata: { purpose: "channel" },
     })] });
     await renderBrowse();
-    expect(chatListMock).not.toHaveBeenCalled();
+    expect(chatListMock).toHaveBeenCalledWith("company-1");
     expect(container.querySelector('[data-app-slug="github"]')).not.toBeNull();
     for (const slug of ["github-code-review-bot", "discord", "telegram", "microsoft-teams", "slack"]) {
       expect(container.querySelector(`[data-app-slug="${slug}"]`)).toBeNull();
     }
     expect(container.textContent).not.toContain("Private bot");
+    expect(container.querySelector('[data-app-slug="agentmail"]')).not.toBeNull();
+    await act(() => void container.querySelector<HTMLButtonElement>('button[aria-label="Connect AgentMail"]')!.click());
+    expect(navigateMock.mock.lastCall?.[0]).toContain("/apps/chat/connect?provider=agentmail");
     expect(container.textContent).not.toContain("Chat with agents");
-    await act(() => void container.querySelector<HTMLButtonElement>('button[aria-label="Connect GitHub"]')!.click());
+    await act(() => void container.querySelector<HTMLButtonElement>('button[aria-label="Add key GitHub"]')!.click());
     expect(navigateMock).toHaveBeenLastCalledWith("/apps/connect?source=github");
+  });
+
+  it("names what the card will actually ask for", async () => {
+    // PAP-659 C4. The verb is derived from the connector's resolved default
+    // method, so it changes with what this instance can do rather than being a
+    // fixed string: Notion signs in, GitHub-without-the-cloud-connector wants a
+    // token, and GitHub with it signs in too.
+    const github = getAppStoreDefinition("github")!;
+    listGalleryMock.mockResolvedValue({
+      apps: [
+        getAppStoreDefinition("notion"),
+        { ...github, ownershipAvailability: { ...github.ownershipAvailability, platform_shared: true } },
+      ],
+    });
+    await renderBrowse();
+    expect(container.querySelector('button[aria-label="Connect Notion"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Connect GitHub"]')).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Add key GitHub"]')).toBeNull();
   });
 
   it("separates tools and saved bots and hides only bots when chat connectors are disabled", async () => {
@@ -407,7 +431,7 @@ describe("Connectors landing page", () => {
     await renderBrowse();
     expect(container.querySelector('[data-app-slug="github"]')).not.toBeNull();
     expect(container.querySelector('[data-app-slug="github-code-review-bot"]')).not.toBeNull();
-    await act(() => void container.querySelector<HTMLButtonElement>('button[aria-label="Connect GitHub"]')!.click());
+    await act(() => void container.querySelector<HTMLButtonElement>('button[aria-label="Add key GitHub"]')!.click());
     expect(navigateMock).toHaveBeenLastCalledWith("/apps/connect?source=github");
     await act(() => void container.querySelector<HTMLButtonElement>('button[aria-label="Connect GitHub Code Review Bot"]')!.click());
     expect(navigateMock).toHaveBeenLastCalledWith("/apps/chat/connect?provider=github&purpose=chat");
@@ -442,6 +466,7 @@ describe("Connectors landing page", () => {
         ),
       ).map((row) => row.dataset.appSlug),
     ).toEqual([
+      "agentmail",
       "discord",
       "github-code-review-bot",
       "imessage-photon",
@@ -624,6 +649,19 @@ describe("Connectors landing page", () => {
     );
   });
 
+  it("starts each AgentMail Add connection with a distinct setup identity", async () => {
+    chatListMock.mockResolvedValue([{ id: "chat-draft", provider: "agentmail", status: "draft", assignedAgentName: "Ralph" }]);
+    await renderBrowse();
+    const add = container.querySelector<HTMLButtonElement>('button[aria-label="Add connection AgentMail"]')!;
+    await act(() => add.click());
+    const first = new URL(navigateMock.mock.lastCall![0], "http://localhost");
+    expect(first.pathname).toBe("/apps/chat/connect");
+    expect(first.searchParams.get("provider")).toBe("agentmail");
+    expect(first.searchParams.get("setupId")).toMatch(/^[0-9a-f-]{36}$/);
+    await act(() => add.click());
+    expect(navigateMock.mock.lastCall![0]).not.toBe(first.pathname + first.search);
+  });
+
   it.each(["slack", "discord", "telegram", "github", "microsoft-teams", "agentmail", "imessage-photon"])(
     "puts Manage and removal in the %s chat menu while keeping draft setup visible",
     async (provider) => {
@@ -647,23 +685,34 @@ describe("Connectors landing page", () => {
     },
   );
 
-  it.each(["active", "draft"])("confirms chat removal for %s connections and refreshes the list", async (status) => {
-    chatListMock.mockResolvedValue([{ id: "chat-1", provider: "slack", status, assignedAgentName: "CEO" }]);
+  it.each([
+    ["slack", "Slack", "active"], ["slack", "Slack", "draft"],
+    ["agentmail", "AgentMail", "active"], ["agentmail", "AgentMail", "draft"],
+  ])("confirms %s removal for %s %s connections and refreshes the list", async (provider, providerName, status) => {
+    chatListMock.mockResolvedValue([{ id: "chat-1", provider, status, assignedAgentName: "CEO" }]);
     const client = await renderBrowse();
     const invalidate = vi.spyOn(client, "invalidateQueries");
-    await act(() => void container.querySelector('button[aria-label="Manage CEO Slack connection"]')!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
+    await act(() => void container.querySelector(`button[aria-label="Manage CEO ${providerName} connection"]`)!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })));
     await flushReact();
     const remove = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Remove connection");
     await act(() => remove!.click());
     await flushReact();
     expect(chatSetupMock).not.toHaveBeenCalled();
+    expect(emailControlMock).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain("Existing Paperclip tasks and conversation history remain available.");
     chatListMock.mockResolvedValue([]);
     await act(() => Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.trim() === "Remove connection")!.click());
     await flushReact();
-    expect(chatSetupMock).toHaveBeenCalledWith("chat-1", { action: "remove" });
+    if (provider === "agentmail") {
+      expect(emailControlMock).toHaveBeenCalledWith("chat-1", "remove");
+      expect(chatSetupMock).not.toHaveBeenCalled();
+    } else {
+      expect(chatSetupMock).toHaveBeenCalledWith("chat-1", { action: "remove" });
+      expect(emailControlMock).not.toHaveBeenCalled();
+    }
     expect(archiveConnectionMock).not.toHaveBeenCalled();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: queryKeys.chatEndpoints.list("company-1") });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["email-inboxes", "company-1"] });
     expect(container.textContent).not.toContain("CEO");
   });
 
