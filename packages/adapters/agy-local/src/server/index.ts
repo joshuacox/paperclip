@@ -35,8 +35,13 @@ export {
   resolveAgySettingsPath,
   ensureAgyApiKeySettings,
   decideAgyAuthMerge,
+  stageAgyHomeForSync,
+  copyBackAgyAuth,
   type AgyCredentialReadiness,
   type AgyCredentialReadinessInput,
+  type CopyBackAgyAuthOutcome,
+  type CopyBackAgyAuthInput,
+  type StageAgyHomeForSyncOptions,
 } from "./credentials.js";
 export {
   resolveAgyMcpConfigPath,
@@ -47,6 +52,7 @@ export {
   type WriteAgyMcpConfigInput,
   type WriteAgyMcpConfigResult,
 } from "./mcp.js";
+export { SANDBOX_INSTALL_COMMAND, ADAPTER_AUTH_MISSING_CHECK_CODE } from "../index.js";
 
 export const sessionCodec: AdapterSessionCodec = {
   deserialize(raw) {

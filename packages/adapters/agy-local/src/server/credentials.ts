@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
+import { withDirectoryMergeLock } from "@paperclipai/adapter-utils/workspace-restore-merge";
 
 export interface AgyCredentialReadinessInput {
   env?: NodeJS.ProcessEnv;
@@ -268,4 +270,145 @@ export async function decideAgyAuthMerge(
   } catch {
     return 20;
   }
+}
+
+export interface StageAgyHomeForSyncOptions {
+  homedir?: string;
+  env?: NodeJS.ProcessEnv;
+  runId?: string;
+}
+
+/**
+ * Stages credentials (antigravity-oauth-token) and configuration (settings.json)
+ * into a private temporary directory suitable for syncing into a sandbox execution target.
+ */
+export async function stageAgyHomeForSync(
+  options: StageAgyHomeForSyncOptions = {},
+): Promise<string> {
+  const env = options.env ?? process.env;
+  const homedir = options.homedir ?? os.homedir();
+  const prefix = options.runId
+    ? `paperclip-agy-home-sync-${options.runId}-`
+    : "paperclip-agy-home-sync-";
+  const stagedDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), prefix));
+  await fs.promises.chmod(stagedDir, 0o700).catch(() => {});
+
+  const tokenPath = resolveAgyOAuthTokenPath(homedir, env);
+  if (tokenPath && hasUsableAgyOAuthToken(tokenPath)) {
+    try {
+      const content = await fs.promises.readFile(tokenPath, "utf8");
+      await fs.promises.writeFile(
+        path.join(stagedDir, "antigravity-oauth-token"),
+        content,
+        { mode: 0o600 },
+      );
+    } catch {
+      // Ignore read/write failures
+    }
+  }
+
+  const settingsPath = resolveAgySettingsPath(homedir, env);
+  let settingsCopied = false;
+  try {
+    if (fs.existsSync(settingsPath)) {
+      const content = await fs.promises.readFile(settingsPath, "utf8");
+      await fs.promises.writeFile(
+        path.join(stagedDir, "settings.json"),
+        content,
+        { mode: 0o600 },
+      );
+      settingsCopied = true;
+    }
+  } catch {
+    // Fall through to API key check
+  }
+
+  if (!settingsCopied) {
+    const hasApiKey = Boolean(
+      env.GEMINI_API_KEY || env.AGY_API_KEY || env.ANTIGRAVITY_API_KEY,
+    );
+    if (hasApiKey) {
+      await fs.promises.writeFile(
+        path.join(stagedDir, "settings.json"),
+        JSON.stringify({ modelProvider: "gemini" }, null, 2) + "\n",
+        { mode: 0o600 },
+      );
+    }
+  }
+
+  return stagedDir;
+}
+
+export type CopyBackAgyAuthOutcome = "copied" | "kept-host";
+
+export interface CopyBackAgyAuthInput {
+  readSandboxAuth: () => Promise<Buffer>;
+  hostTokenPath: string;
+  log: (line: string) => void | Promise<void>;
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Guards, locks, and atomically installs a strictly-newer sandbox Antigravity
+ * OAuth token onto the host credential at teardown.
+ */
+export async function copyBackAgyAuth(
+  input: CopyBackAgyAuthInput,
+): Promise<CopyBackAgyAuthOutcome> {
+  const { readSandboxAuth, hostTokenPath, log, env = process.env } = input;
+
+  let sandboxAuthBytes: Buffer;
+  try {
+    sandboxAuthBytes = await readSandboxAuth();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") {
+      return "kept-host";
+    }
+    throw error;
+  }
+
+  let resolvedHostTokenPath = hostTokenPath;
+  try {
+    if (fs.existsSync(hostTokenPath)) {
+      resolvedHostTokenPath = await fs.promises.realpath(hostTokenPath);
+    }
+  } catch {
+    // keep hostTokenPath
+  }
+
+  const hostDir = path.dirname(resolvedHostTokenPath);
+  await fs.promises.mkdir(hostDir, { recursive: true, mode: 0o700 });
+
+  return await withDirectoryMergeLock(
+    hostDir,
+    async () => {
+      const stagedTempPath = path.join(
+        hostDir,
+        `.antigravity-oauth-token.copyback-${process.pid}-${randomUUID()}.tmp`,
+      );
+      const handle = await fs.promises.open(stagedTempPath, "wx", 0o600);
+      try {
+        await handle.writeFile(sandboxAuthBytes);
+        await handle.close();
+
+        const decision = await decideAgyAuthMerge(stagedTempPath, resolvedHostTokenPath);
+        if (decision === 10) {
+          await fs.promises.rename(stagedTempPath, resolvedHostTokenPath);
+          await log(
+            "[paperclip] Antigravity auth copy-out: updated host credential from sandbox.",
+          );
+          return "copied";
+        }
+
+        await log(
+          "[paperclip] Antigravity auth copy-out: host credential is newer or equivalent; kept host.",
+        );
+        return "kept-host";
+      } finally {
+        await handle.close().catch(() => undefined);
+        await fs.promises.rm(stagedTempPath, { force: true }).catch(() => undefined);
+      }
+    },
+    env,
+  );
 }

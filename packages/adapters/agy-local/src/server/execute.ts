@@ -9,12 +9,21 @@ import {
   overrideAdapterExecutionTargetRemoteCwd,
   adapterExecutionTargetSessionIdentity,
   adapterExecutionTargetSessionMatches,
+  adapterExecutionTargetUsesPaperclipBridge,
+  adapterExecutionTargetEnablesSandboxDuplexBridge,
+  adapterExecutionTargetDuplexObservabilityRecorder,
+  adapterExecutionTargetUsesManagedHome,
+  describeAdapterExecutionTarget,
   ensureAdapterExecutionTargetCommandResolvable,
   ensureAdapterExecutionTargetRuntimeCommandInstalled,
+  prepareAdapterExecutionTargetRuntime,
   readAdapterExecutionTarget,
+  readAdapterExecutionTargetHomeDir,
   resolveAdapterExecutionTargetTimeoutSec,
   resolveAdapterExecutionTargetCommandForLogs,
   runAdapterExecutionTargetProcess,
+  runAdapterExecutionTargetShellCommand,
+  startAdapterExecutionTargetPaperclipBridge,
 } from "@paperclipai/adapter-utils/execution-target";
 import {
   asBoolean,
@@ -57,9 +66,18 @@ import {
   syncSkillsForRun,
 } from "./skills.js";
 import { inferModelProvider } from "./models.js";
-import { ensureAgyApiKeySettings } from "./credentials.js";
+import {
+  copyBackAgyAuth,
+  ensureAgyApiKeySettings,
+  resolveAgyOAuthTokenPath,
+  stageAgyHomeForSync,
+} from "./credentials.js";
 import { writePaperclipAgyMcpConfig } from "./mcp.js";
-import { DEFAULT_AGY_LOCAL_MODEL, resolveAgyModelEffort } from "../index.js";
+import {
+  DEFAULT_AGY_LOCAL_MODEL,
+  resolveAgyModelEffort,
+  SANDBOX_INSTALL_COMMAND,
+} from "../index.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -176,7 +194,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const useConfiguredInsteadOfAgentHome = workspaceSource === "agent_home" && configuredCwd.length > 0;
   const effectiveWorkspaceCwd = useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
   const cwd = effectiveWorkspaceCwd || configuredCwd || process.cwd();
-  const effectiveExecutionCwd = adapterExecutionTargetRemoteCwd(executionTarget, cwd);
+  let effectiveExecutionCwd = adapterExecutionTargetRemoteCwd(executionTarget, cwd);
   await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
 
   // ── Skills reconciliation and receipt logging ──────────────────────────────
@@ -186,7 +204,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     companyId: agent.companyId,
   });
   let skillsAddDir: string | null = null;
-  if (skillRoot.addDir && !executionTargetIsRemote) {
+  let skillsHomeExists = false;
+  if (skillRoot.addDir) {
     try {
       const runSync = await syncSkillsForRun({
         config,
@@ -208,16 +227,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         }\n`,
       );
     }
-    const skillsHomeExists = await fs
+    skillsHomeExists = await fs
       .stat(skillRoot.skillsHome)
       .then((stats) => stats.isDirectory())
       .catch(() => false);
-    if (skillsHomeExists) skillsAddDir = skillRoot.addDir;
-  } else if (skillRoot.addDir && executionTargetIsRemote) {
-    await onLog(
-      "stdout",
-      `[paperclip] Skills synced to ${skillRoot.skillsHome} are not delivered to remote execution targets.\n`,
-    );
+    if (skillsHomeExists && !executionTargetIsRemote) {
+      skillsAddDir = skillRoot.addDir;
+    }
   }
 
   const envConfig = parseObject(config.env);
@@ -302,6 +318,136 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   );
   const graceSec = asNumber(config.graceSec, 15);
 
+  let restoreRemoteWorkspace: (() => Promise<void>) | null = null;
+  let remoteRuntimeRootDir: string | null = null;
+  let remoteSkillsDir: string | null = null;
+  let stagedAgyHomeDir: string | null = null;
+  let paperclipBridge: Awaited<ReturnType<typeof startAdapterExecutionTargetPaperclipBridge>> = null;
+
+  if (executionTargetIsRemote) {
+    try {
+      const hostTokenPath =
+        resolveAgyOAuthTokenPath(runtimeEnv.HOME || os.homedir(), runtimeEnv) ??
+        path.join(runtimeEnv.HOME || os.homedir(), ".gemini", "antigravity-cli", "antigravity-oauth-token");
+      stagedAgyHomeDir = await stageAgyHomeForSync({
+        homedir: runtimeEnv.HOME || os.homedir(),
+        env: runtimeEnv,
+        runId,
+      });
+
+      await onLog(
+        "stdout",
+        `[paperclip] Syncing workspace and Antigravity runtime assets to ${describeAdapterExecutionTarget(executionTarget)}.\n`,
+      );
+
+      const preparedExecutionTargetRuntime = await prepareAdapterExecutionTargetRuntime({
+        runId,
+        target: executionTarget,
+        adapterKey: "agy",
+        timeoutSec,
+        workspaceLocalDir: cwd,
+        installCommand: ctx.runtimeCommandSpec?.installCommand ?? SANDBOX_INSTALL_COMMAND,
+        detectCommand: command,
+        onProgress: (line) => onLog("stdout", line),
+        onRuntimeProgress: ctx.onRuntimeProgress,
+        assets: [
+          ...(skillsHomeExists && skillRoot.addDir
+            ? [
+                {
+                  key: "skills",
+                  localDir: skillRoot.addDir,
+                  followSymlinks: true,
+                },
+              ]
+            : []),
+          {
+            key: "agy-home",
+            localDir: stagedAgyHomeDir,
+            followSymlinks: true,
+            restore: async ({ assetDir, readFile }: { assetDir: string; readFile: (p: string) => Promise<Buffer> }) => {
+              await copyBackAgyAuth({
+                readSandboxAuth: () =>
+                  readFile(path.posix.join(assetDir, "antigravity-oauth-token")),
+                hostTokenPath,
+                log: (line) => onLog("stdout", `${line}\n`),
+                env: process.env,
+              });
+            },
+          },
+        ],
+      });
+
+      restoreRemoteWorkspace = () =>
+        preparedExecutionTargetRuntime.restoreWorkspace((line) => onLog("stdout", line));
+      effectiveExecutionCwd = preparedExecutionTargetRuntime.workspaceRemoteDir ?? effectiveExecutionCwd;
+
+      refreshPaperclipWorkspaceEnvForExecution({
+        env,
+        envConfig,
+        workspaceCwd: effectiveWorkspaceCwd,
+        workspaceSource,
+        workspaceId,
+        workspaceRepoUrl,
+        workspaceRepoRef,
+        workspaceHints,
+        agentHome,
+        executionTargetIsRemote,
+        executionCwd: effectiveExecutionCwd,
+      });
+
+      remoteRuntimeRootDir = preparedExecutionTargetRuntime.runtimeRootDir;
+      remoteSkillsDir = preparedExecutionTargetRuntime.assetDirs.skills ?? null;
+
+      const managedHome = adapterExecutionTargetUsesManagedHome(executionTarget);
+      const managedRemoteHomeDir =
+        managedHome && preparedExecutionTargetRuntime.runtimeRootDir
+          ? preparedExecutionTargetRuntime.runtimeRootDir
+          : null;
+      if (managedRemoteHomeDir) {
+        env.HOME = managedRemoteHomeDir;
+      }
+      const remoteHomeDir =
+        managedRemoteHomeDir ??
+        (await readAdapterExecutionTargetHomeDir(runId, executionTarget, {
+          cwd: effectiveExecutionCwd,
+          env,
+          timeoutSec,
+          graceSec,
+          onLog,
+        }));
+
+      if (remoteHomeDir && preparedExecutionTargetRuntime.assetDirs["agy-home"]) {
+        const stagedAgyHomeRemote = preparedExecutionTargetRuntime.assetDirs["agy-home"];
+        const targetAgyHome = path.posix.join(remoteHomeDir, ".gemini", "antigravity-cli");
+        await runAdapterExecutionTargetShellCommand(
+          runId,
+          executionTarget,
+          `mkdir -p ${JSON.stringify(path.posix.dirname(targetAgyHome))} && rm -rf ${JSON.stringify(targetAgyHome)} && (ln -s ${JSON.stringify(stagedAgyHomeRemote)} ${JSON.stringify(targetAgyHome)} || cp -a ${JSON.stringify(stagedAgyHomeRemote)} ${JSON.stringify(targetAgyHome)})`,
+          { cwd: effectiveExecutionCwd, env, timeoutSec, graceSec, onLog },
+        );
+        env.ANTIGRAVITY_CLI_HOME = targetAgyHome;
+        env.GEMINI_CLI_HOME = targetAgyHome;
+      }
+
+      Object.assign(runtimeEnv, {
+        ...(env.HOME ? { HOME: env.HOME } : {}),
+        ...(env.ANTIGRAVITY_CLI_HOME ? { ANTIGRAVITY_CLI_HOME: env.ANTIGRAVITY_CLI_HOME } : {}),
+        ...(env.GEMINI_CLI_HOME ? { GEMINI_CLI_HOME: env.GEMINI_CLI_HOME } : {}),
+      });
+    } catch (error) {
+      await Promise.allSettled([
+        restoreRemoteWorkspace?.(),
+        stagedAgyHomeDir ? fs.rm(stagedAgyHomeDir, { recursive: true, force: true }).catch(() => undefined) : Promise.resolve(),
+      ]);
+      throw error;
+    }
+  }
+
+  const runtimeExecutionTarget = overrideAdapterExecutionTargetRemoteCwd(
+    executionTarget,
+    effectiveExecutionCwd,
+  );
+
   await ensureAdapterExecutionTargetRuntimeCommandInstalled({
     runId,
     target: executionTarget,
@@ -315,6 +461,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   });
 
   await ensureAdapterExecutionTargetCommandResolvable(command, executionTarget, cwd, runtimeEnv, {
+    installCommand: SANDBOX_INSTALL_COMMAND,
     timeoutSec,
   });
 
@@ -325,22 +472,40 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     runtimeEnv,
   );
 
-  const loggedEnv = buildInvocationEnvForLogs(env, {
+  let loggedEnv = buildInvocationEnvForLogs(env, {
     runtimeEnv,
-    includeRuntimeKeys: ["HOME", "PATH"],
+    includeRuntimeKeys: ["HOME", "PATH", "ANTIGRAVITY_CLI_HOME", "GEMINI_CLI_HOME"],
     resolvedCommand,
   });
+
+  if (executionTargetIsRemote && adapterExecutionTargetUsesPaperclipBridge(runtimeExecutionTarget)) {
+    paperclipBridge = await startAdapterExecutionTargetPaperclipBridge({
+      runId,
+      target: runtimeExecutionTarget,
+      enableSandboxDuplexBridge: adapterExecutionTargetEnablesSandboxDuplexBridge(runtimeExecutionTarget),
+      duplexObservabilityRecorder: adapterExecutionTargetDuplexObservabilityRecorder(runtimeExecutionTarget),
+      runtimeRootDir: remoteRuntimeRootDir,
+      adapterKey: "agy",
+      timeoutSec,
+      hostApiToken: env.PAPERCLIP_API_KEY,
+      onLog,
+    });
+    if (paperclipBridge) {
+      Object.assign(env, paperclipBridge.env);
+      Object.assign(runtimeEnv, paperclipBridge.env);
+      loggedEnv = buildInvocationEnvForLogs(env, {
+        runtimeEnv,
+        includeRuntimeKeys: ["HOME", "PATH", "ANTIGRAVITY_CLI_HOME", "GEMINI_CLI_HOME"],
+        resolvedCommand,
+      });
+    }
+  }
 
   const extraArgs = (() => {
     const fromExtraArgs = asStringArray(config.extraArgs);
     if (fromExtraArgs.length > 0) return fromExtraArgs;
     return asStringArray(config.args);
   })();
-
-  const runtimeExecutionTarget = overrideAdapterExecutionTargetRemoteCwd(
-    executionTarget,
-    effectiveExecutionCwd,
-  );
 
   const runtimeSessionParams = parseObject(runtime.sessionParams);
   const runtimeSessionId =
@@ -349,11 +514,22 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     asString(runtime.sessionId, "");
   const runtimeSessionCwd = asString(runtimeSessionParams.cwd, "");
   const runtimeRemoteExecution = parseObject(runtimeSessionParams.remoteExecution);
+  const sessionCwdsMatch =
+    runtimeSessionCwd.length === 0 ||
+    (executionTargetIsRemote
+      ? path.posix.normalize(runtimeSessionCwd) === path.posix.normalize(effectiveExecutionCwd)
+      : path.resolve(runtimeSessionCwd) === path.resolve(effectiveExecutionCwd));
   const canResumeSession =
     runtimeSessionId.length > 0 &&
-    (runtimeSessionCwd.length === 0 || path.resolve(runtimeSessionCwd) === path.resolve(effectiveExecutionCwd)) &&
+    sessionCwdsMatch &&
     adapterExecutionTargetSessionMatches(runtimeRemoteExecution, runtimeExecutionTarget);
   const sessionId = canResumeSession ? runtimeSessionId : null;
+  if (executionTargetIsRemote && runtimeSessionId && !canResumeSession) {
+    await onLog(
+      "stdout",
+      `[paperclip] Antigravity session "${runtimeSessionId}" does not match the current remote execution identity and will not be resumed in "${effectiveExecutionCwd}". Starting a fresh remote session.\n`,
+    );
+  }
 
   const instructionsFilePath = asString(config.instructionsFilePath, "").trim();
   const resolvedInstructionsFilePath = instructionsFilePath
@@ -417,39 +593,51 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   };
 
   const buildArgs = (resumeSessionId: string | null) => {
+    const initialCwd = executionTargetIsRemote ? effectiveExecutionCwd : cwd;
     const args = [
       "--output-format",
       "stream-json",
       "--input-format",
       useStreamJsonInput ? "stream-json" : "text",
       "--add-dir",
-      cwd,
+      initialCwd,
     ];
 
     // Multi-workspace monorepo injection: add all distinct workspace and configured directories
-    const addedDirs = new Set<string>([path.resolve(cwd)]);
-    for (const hint of workspaceHints) {
-      const hintCwd = asString(hint.cwd, "").trim();
-      if (hintCwd) {
-        const resolved = path.resolve(hintCwd);
-        if (!addedDirs.has(resolved)) {
-          addedDirs.add(resolved);
-          args.push("--add-dir", hintCwd);
+    const addedDirs = new Set<string>([
+      executionTargetIsRemote
+        ? path.posix.normalize(initialCwd)
+        : path.resolve(initialCwd),
+    ]);
+    if (!executionTargetIsRemote) {
+      for (const hint of workspaceHints) {
+        const hintCwd = asString(hint.cwd, "").trim();
+        if (hintCwd) {
+          const resolved = path.resolve(hintCwd);
+          if (!addedDirs.has(resolved)) {
+            addedDirs.add(resolved);
+            args.push("--add-dir", hintCwd);
+          }
         }
       }
     }
     for (const addDir of additionalDirs) {
-      const resolved = path.resolve(addDir);
+      const resolved = executionTargetIsRemote
+        ? path.posix.normalize(addDir)
+        : path.resolve(addDir);
       if (!addedDirs.has(resolved)) {
         addedDirs.add(resolved);
         args.push("--add-dir", addDir);
       }
     }
-    if (skillsAddDir) {
-      const resolved = path.resolve(skillsAddDir);
+    const effectiveSkillsDir = executionTargetIsRemote ? remoteSkillsDir : skillsAddDir;
+    if (effectiveSkillsDir) {
+      const resolved = executionTargetIsRemote
+        ? path.posix.normalize(effectiveSkillsDir)
+        : path.resolve(effectiveSkillsDir);
       if (!addedDirs.has(resolved)) {
         addedDirs.add(resolved);
-        args.push("--add-dir", skillsAddDir);
+        args.push("--add-dir", effectiveSkillsDir);
       }
     }
 
@@ -522,7 +710,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       command,
       args,
       {
-        cwd,
+        cwd: effectiveExecutionCwd,
         env: runtimeEnv,
         stdin,
         timeoutSec,
@@ -747,5 +935,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     return finalResult;
   } finally {
     await mcpCleanup?.().catch(() => undefined);
+    try {
+      await paperclipBridge?.stop();
+    } catch {}
+    try {
+      await restoreRemoteWorkspace?.();
+    } catch {}
+    if (stagedAgyHomeDir) {
+      await fs.rm(stagedAgyHomeDir, { recursive: true, force: true }).catch(() => {});
+    }
   }
 }

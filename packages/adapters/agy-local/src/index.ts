@@ -1,9 +1,24 @@
+export { ADAPTER_AUTH_MISSING_CHECK_CODE } from "@paperclipai/shared";
+
 export const type = "agy_local";
 export const label = "Antigravity (agy)";
 
 export const DEFAULT_AGY_LOCAL_MODEL = "gemini-3.8-flash-high";
 export const DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL = "gemini-3.8-flash-low";
 export const DEFAULT_AGY_LOCAL_ROUTINE_MODEL = DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL;
+
+export const SANDBOX_INSTALL_COMMAND =
+  'curl -fsSL --compressed https://antigravity.google/cli/install.sh | bash && ' +
+  'if [ -x "$HOME/.local/bin/agy" ]; then ' +
+  'if [ "$(id -u)" -eq 0 ]; then ' +
+  'ln -sf "$HOME/.local/bin/agy" /usr/local/bin/agy; ' +
+  'elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then ' +
+  'sudo ln -sf "$HOME/.local/bin/agy" /usr/local/bin/agy; ' +
+  'else ' +
+  'mkdir -p "$HOME/.local/bin" && ' +
+  'ln -sf "$HOME/.local/bin/agy" "$HOME/.local/bin/agy"; ' +
+  'fi; ' +
+  'fi';
 
 export function modelHasEffortSuffix(model: string): boolean {
   return /-(?:low|medium|high)$/i.test(model.trim());
