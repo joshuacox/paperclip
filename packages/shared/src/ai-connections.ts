@@ -31,6 +31,7 @@ export const AI_PROVIDERS = [
   "openai",
   "openrouter",
   "xai",
+  "antigravity",
 ] as const;
 export const aiProviderSchema = z.enum(AI_PROVIDERS);
 export const aiAuthMethodSchema = z.enum(["subscription", "api_key"]);
@@ -105,6 +106,19 @@ export const AI_CONNECTION_CAPABILITIES: Record<
     methods: {
       subscription: { adapters: ["grok_local"], envKey: "GROK_HOME" },
       api_key: { adapters: ["grok_local"], envKey: "XAI_API_KEY" },
+    },
+  },
+  antigravity: {
+    name: "Antigravity",
+    methods: {
+      subscription: {
+        adapters: ["agy_local"],
+        envKey: "ANTIGRAVITY_OAUTH_TOKEN",
+      },
+      api_key: {
+        adapters: ["agy_local"],
+        envKey: "GEMINI_API_KEY",
+      },
     },
   },
 };

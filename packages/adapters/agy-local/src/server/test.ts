@@ -18,8 +18,10 @@ import {
   describeAdapterExecutionTarget,
   resolveAdapterExecutionTargetCwd,
 } from "@paperclipai/adapter-utils/execution-target";
+import os from "node:os";
 import { DEFAULT_AGY_LOCAL_MODEL, modelHasEffortSuffix } from "../index.js";
 import { parseAgyJsonl } from "./parse.js";
+import { ensureAgyApiKeySettings } from "./credentials.js";
 
 function summarizeStatus(checks: AdapterEnvironmentCheck[]): AdapterEnvironmentTestResult["status"] {
   if (checks.some((check) => check.level === "error")) return "fail";
@@ -114,6 +116,14 @@ export async function testEnvironment(
   );
 
   if (canRunProbe) {
+    if (runtimeEnv.GEMINI_API_KEY && !targetIsRemote) {
+      try {
+        await ensureAgyApiKeySettings(runtimeEnv.HOME || os.homedir(), runtimeEnv);
+      } catch {
+        // Continue probe even if settings write fails
+      }
+    }
+
     const model = asString(config.model, DEFAULT_AGY_LOCAL_MODEL).trim();
     const effort = asString(config.effort, "").trim();
     // When unset, omit --mode to match real execution under Antigravity default edit mode

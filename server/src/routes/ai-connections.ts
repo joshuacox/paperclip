@@ -142,6 +142,7 @@ export async function validateAiApiKey(
     openai: "https://api.openai.com/v1/models",
     openrouter: "https://openrouter.ai/api/v1/key",
     xai: "https://api.x.ai/v1/models",
+    antigravity: "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1",
   };
   let response: Response;
   try {
@@ -151,19 +152,26 @@ export async function validateAiApiKey(
       headers:
         provider === "anthropic"
           ? { "x-api-key": key, "anthropic-version": "2023-06-01" }
-          : { Authorization: `Bearer ${key}` },
+          : provider === "antigravity"
+            ? { "x-goog-api-key": key }
+            : { Authorization: `Bearer ${key}` },
     });
   } catch {
     throw unprocessable("Could not verify the account. Try again.", { code: "ai_connection_verification_failed" });
   }
   await response.body?.cancel();
-  if (!response.ok)
+  if (!response.ok) {
+    const rejected =
+      response.status === 401 ||
+      response.status === 403 ||
+      (provider === "antigravity" && response.status === 400);
     throw unprocessable(
-      response.status === 401 || response.status === 403
+      rejected
         ? "The provider rejected this API key."
         : "The provider could not verify this account. Try again.",
-      { code: response.status === 401 || response.status === 403 ? "ai_connection_api_key_rejected" : "ai_connection_verification_failed" },
+      { code: rejected ? "ai_connection_api_key_rejected" : "ai_connection_verification_failed" },
     );
+  }
 }
 
 export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLocalAiLogin>[0] = {}) {
@@ -191,9 +199,9 @@ export function aiConnectionRoutes(db: Db, options: Parameters<typeof supportsLo
     const companyId = req.params.companyId as string;
     const { localSessionId, ...intent } = localAiConnectionSchema.parse(req.body);
     assertLocalLoginAvailable();
-    // Only implicit local operators may inspect ambient Claude credentials.
+    // Only implicit local operators may inspect ambient Claude or Antigravity credentials.
     // Authenticated users sign in to their own company/user-scoped attempt.
-    if (intent.provider === "anthropic" && !localSessionId) assertLocalOperator(req);
+    if ((intent.provider === "anthropic" || intent.provider === "antigravity") && !localSessionId) assertLocalOperator(req);
     const userId = await assertAiConnectionCreateAccess(db, req, companyId, intent);
     res.setHeader("Cache-Control", "no-store");
     res.json(await localLogin.check(companyId, userId, intent, localSessionId));
