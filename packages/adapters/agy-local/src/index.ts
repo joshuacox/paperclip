@@ -2,6 +2,8 @@ export const type = "agy_local";
 export const label = "Antigravity (agy)";
 
 export const DEFAULT_AGY_LOCAL_MODEL = "gemini-3.8-flash-high";
+export const DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL = "gemini-3.8-flash-low";
+export const DEFAULT_AGY_LOCAL_ROUTINE_MODEL = DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL;
 
 export function modelHasEffortSuffix(model: string): boolean {
   return /-(?:low|medium|high)$/i.test(model.trim());
@@ -48,7 +50,7 @@ Core fields:
 - model (string, optional): model ID. Defaults to "gemini-3.8-flash-high"
 - effort (string, optional): reasoning effort (low | medium | high)
 - mode (string, optional): execution mode (accept-edits | plan)
-- dangerouslySkipPermissions (boolean, optional, default true): allow non-interactive tool calls without prompting
+- dangerouslySkipPermissions (boolean, optional, default false): allow non-interactive tool calls without prompting
 - project (string, optional): Antigravity project ID or project name passed via --project
 - printTimeout (string, optional): CLI print mode timeout (e.g. "15m", "30m", "1h"); defaults to aligned Paperclip timeoutSec or 24h
 - inputFormat (string, optional): input mode; defaults to "stream-json" and sends the prompt over stdin, or use "text" for legacy --print delivery

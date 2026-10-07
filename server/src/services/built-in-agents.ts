@@ -26,6 +26,7 @@ import { companySkillService } from "./company-skills.js";
 import { routineService } from "./routines.js";
 import { accessService } from "./access.js";
 import { listAdapterModels } from "../adapters/registry.js";
+import { DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL } from "@paperclipai/adapter-agy-local";
 import {
   resourceStatus,
   stableJson,
@@ -728,8 +729,19 @@ function builtInMetadata(definition: BuiltInAgentDefinition, existing?: Record<s
 }
 
 function defaultAdapterConfigFor(definition: BuiltInAgentDefinition, adapterType: string): Record<string, unknown> {
-  if (adapterType === "agy_local" && definition.key === "summarizer") {
-    return { model: "gemini-3.8-flash-low" };
+  if (adapterType === "agy_local") {
+    const base = definition.defaultAdapterConfig ?? {};
+    if (definition.key === "summarizer") {
+      return {
+        ...base,
+        model: DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL,
+        dangerouslySkipPermissions: true,
+      };
+    }
+    return {
+      ...base,
+      dangerouslySkipPermissions: true,
+    };
   }
   return definition.defaultAdapterConfig ?? {};
 }
@@ -737,6 +749,7 @@ function defaultAdapterConfigFor(definition: BuiltInAgentDefinition, adapterType
 function definitionPatch(definition: BuiltInAgentDefinition, input: BuiltInAgentProvisionInput = {}) {
   const adapterType = input.adapterType ?? defaultAdapterType(definition);
   assertAdapterAllowed(definition, adapterType);
+  const defaults = defaultAdapterConfigFor(definition, adapterType);
   return {
     name: definition.displayName,
     role: definition.defaultRole,
@@ -744,7 +757,9 @@ function definitionPatch(definition: BuiltInAgentDefinition, input: BuiltInAgent
     icon: definition.defaultIcon ?? null,
     capabilities: definition.shortPurpose,
     adapterType,
-    adapterConfig: input.adapterConfig ?? defaultAdapterConfigFor(definition, adapterType),
+    adapterConfig: input.adapterConfig
+      ? { ...defaults, ...input.adapterConfig }
+      : defaults,
     permissions: definition.defaultPermissions ?? {},
     budgetMonthlyCents: input.budgetMonthlyCents ?? definition.defaultBudgetMonthlyCents ?? 0,
   };
@@ -755,7 +770,10 @@ async function assertKnownBuiltInAgentModel(
   input: BuiltInAgentProvisionInput,
 ) {
   const adapterType = input.adapterType ?? defaultAdapterType(definition);
-  const adapterConfig = input.adapterConfig ?? defaultAdapterConfigFor(definition, adapterType);
+  const defaults = defaultAdapterConfigFor(definition, adapterType);
+  const adapterConfig = input.adapterConfig
+    ? { ...defaults, ...input.adapterConfig }
+    : defaults;
   const model = typeof adapterConfig.model === "string" ? adapterConfig.model.trim() : "";
   if (!model || !hasCompleteAdapterConfig(adapterType, adapterConfig)) return;
 
@@ -1761,7 +1779,10 @@ export function builtInAgentService(db: Db) {
         const adapterType = resolvedInput.adapterType ?? existing.adapterType;
         assertAdapterAllowed(definition, adapterType);
         patch.adapterType = adapterType;
-        patch.adapterConfig = resolvedInput.adapterConfig ?? existing.adapterConfig;
+        const defaults = defaultAdapterConfigFor(definition, adapterType);
+        patch.adapterConfig = resolvedInput.adapterConfig
+          ? { ...defaults, ...resolvedInput.adapterConfig }
+          : (adapterType !== existing.adapterType ? defaults : existing.adapterConfig);
         if (!adapterSupportsAiConnections(adapterType) && existing.runtimeConfig?.aiConnection) {
           const nextRc = { ...existing.runtimeConfig };
           delete nextRc.aiConnection;

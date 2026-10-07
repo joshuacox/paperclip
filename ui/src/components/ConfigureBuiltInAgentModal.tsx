@@ -22,6 +22,7 @@ import {
   builtInAgentsApi,
   type BuiltInAgentState,
 } from "@/api/builtInAgents";
+import { DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL } from "@paperclipai/adapter-agy-local";
 import { adapterCuratesModelOrder } from "../lib/model-utils";
 
 /** Adapters whose config completeness is keyed on a non-empty `model`. */
@@ -74,7 +75,7 @@ export function ConfigureBuiltInAgentModal({
       : null;
     if (typeof configuredModel === "string") return configuredModel;
     if ((state.agent?.adapterType ?? defaultAdapterType(state)) === "agy_local" && definition.key === "summarizer") {
-      return "gemini-3.8-flash-low";
+      return DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL;
     }
     const defaultModel = state.definition.defaultAdapterConfig?.model;
     return typeof defaultModel === "string" ? defaultModel : "";
@@ -172,7 +173,7 @@ export function ConfigureBuiltInAgentModal({
               onChange={(next) => {
                 setAdapterType(next);
                 if (next === "agy_local" && definition.key === "summarizer") {
-                  setModel("gemini-3.8-flash-low");
+                  setModel(DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL);
                 } else {
                   setModel("");
                 }

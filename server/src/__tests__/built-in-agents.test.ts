@@ -26,6 +26,7 @@ import {
   routineTriggers,
 } from "@paperclipai/db";
 import { readPaperclipSkillSyncPreference } from "@paperclipai/adapter-utils/server-utils";
+import { DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL } from "@paperclipai/adapter-agy-local";
 import {
   getEmbeddedPostgresTestSupport,
   startEmbeddedPostgresTestDatabase,
@@ -438,7 +439,7 @@ describeEmbeddedPostgres("built-in agents", () => {
     });
   });
 
-  it("allows provisioning summarizer with agy_local defaulting to gemini-3.8-flash-low", async () => {
+  it("allows provisioning summarizer with agy_local defaulting to low-effort model and dangerouslySkipPermissions", async () => {
     const companyId = await seedCompany();
 
     const state = await builtInAgentService(db).ensure(companyId, "summarizer", {
@@ -447,7 +448,18 @@ describeEmbeddedPostgres("built-in agents", () => {
 
     expect(state.status).toBe("paused");
     expect(state.agent?.adapterType).toBe("agy_local");
-    expect(state.agent?.adapterConfig).toMatchObject({ model: "gemini-3.8-flash-low" });
+    expect(state.agent?.adapterConfig).toMatchObject({
+      model: DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL,
+      dangerouslySkipPermissions: true,
+    });
+
+    const stateExplicitFalse = await builtInAgentService(db).ensure(companyId, "summarizer", {
+      adapterType: "agy_local",
+      adapterConfig: { dangerouslySkipPermissions: false },
+    });
+    expect(stateExplicitFalse.agent?.adapterConfig).toMatchObject({
+      dangerouslySkipPermissions: false,
+    });
   });
 
   it("drops stale AI connection when reconfiguring summarizer to agy_local", async () => {

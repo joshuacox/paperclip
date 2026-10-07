@@ -24,7 +24,7 @@ export function buildAgyConfig(v: CreateConfigValues): Record<string, unknown> {
   if (raw.project) ac.project = String(raw.project).trim();
   if (raw.printTimeout) ac.printTimeout = String(raw.printTimeout).trim();
   if (typeof raw.disableSlashCommands === "boolean") ac.disableSlashCommands = raw.disableSlashCommands;
-  ac.dangerouslySkipPermissions = v.dangerouslySkipPermissions !== false;
+  ac.dangerouslySkipPermissions = Boolean(v.dangerouslySkipPermissions);
   ac.timeoutSec = 0;
   ac.graceSec = 15;
   if (v.workspaceStrategyType === "git_worktree") {
