@@ -339,7 +339,7 @@ export async function probeAiConnectionUsage(
 ): Promise<Omit<AiConnectionUsage, "connectionId" | "grantId">> {
   const base = { ...metadata, checkedAt: new Date().toISOString(), source: null, planType: null, limits: [], overage: null };
   const probe = probes[metadata.provider];
-  if (!supportsAiConnectionUsage(metadata.provider, metadata.method) || !probe) {
+  if (metadata.provider === "google" || !supportsAiConnectionUsage(metadata.provider, metadata.method) || !probe) {
     return { ...base, status: "unsupported", errorCode: "unsupported", message: messages.unsupported };
   }
   try {

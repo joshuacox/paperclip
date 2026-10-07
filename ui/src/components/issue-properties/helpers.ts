@@ -95,6 +95,7 @@ export function thinkingEffortOptionsFor(
 ) {
   if (adapterType === "codex_local") return codexReasoningEffortOptions(model);
   if (adapterType === "opencode_local") return ISSUE_THINKING_EFFORT_OPTIONS.opencode_local;
+  if (adapterType === "agy_local") return ISSUE_THINKING_EFFORT_OPTIONS.agy_local;
   return ISSUE_THINKING_EFFORT_OPTIONS.claude_local;
 }
 

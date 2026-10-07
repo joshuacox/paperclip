@@ -466,6 +466,8 @@ describe("agent routes adapter validation", () => {
   });
 
   it("drops stale AI connection without 422 when updating agent to an adapter that does not support AI connections", async () => {
+    // agy_local supports AI connections since the Antigravity AI-connection
+    // support landed, so the unsupported-harness example here is `process`.
     const agentId = "11111111-1111-4111-8111-111111111111";
     mockAgentService.getById.mockResolvedValue({
       id: agentId,
@@ -500,8 +502,8 @@ describe("agent routes adapter validation", () => {
     mockAgentService.update.mockResolvedValue({
       id: agentId,
       companyId: "company-1",
-      adapterType: "agy_local",
-      adapterConfig: { model: "gemini-3.8-flash-low" },
+      adapterType: "process",
+      adapterConfig: { env: {} },
       runtimeConfig: {},
     });
     const app = await createApp();
@@ -509,14 +511,14 @@ describe("agent routes adapter validation", () => {
       request(baseUrl)
         .patch(`/api/agents/${agentId}`)
         .send({
-          adapterType: "agy_local",
-          adapterConfig: { model: "gemini-3.8-flash-low" },
+          adapterType: "process",
+          adapterConfig: { env: {} },
         }),
     );
 
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     const patch = mockAgentService.update.mock.calls.at(-1)?.[1] as Record<string, unknown>;
-    expect(patch.adapterType).toBe("agy_local");
+    expect(patch.adapterType).toBe("process");
     const runtimeConfig = patch.runtimeConfig as Record<string, unknown> | undefined;
     expect(runtimeConfig?.aiConnection).toBeUndefined();
   });
