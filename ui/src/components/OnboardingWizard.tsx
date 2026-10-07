@@ -805,7 +805,10 @@ function OnboardingWizardInner({
    */
   const apiKeySecretRef = useRef<{ key: string; companyId: string; envKey: string; binding?: Awaited<ReturnType<typeof storeProviderApiKey>>["binding"]; aiConnection?: AiConnectionBinding } | null>(null);
   const managedSubscriptionRef = useRef<{ companyId: string; binding: AiConnectionBinding } | null>(null);
-  const managedProvider = aiProviderForAdapter(adapterType);
+  // Hermes is not a managed-connection onboarding provider: its typed key is
+  // carried as an env user secret on the hired agent (see buildHermesConfig),
+  // even though the config form maps it to OpenRouter AI connections.
+  const managedProvider = adapterType === "hermes_local" ? undefined : aiProviderForAdapter(adapterType);
   const managedSubscriptionProvider = managedProvider === "anthropic" || managedProvider === "openai" || managedProvider === "xai" || managedProvider === "antigravity" ? managedProvider : undefined;
   function managedBindingForStep(): AiConnectionBinding | undefined {
     if (credentialMode === "api") return selectedApiKey?.aiConnection ?? (
@@ -1034,32 +1037,6 @@ function OnboardingWizardInner({
     loginEnvironmentProvider != null &&
     loginEnvironmentCapabilities?.sandboxProviders?.[loginEnvironmentProvider]?.supportsLoginPty ===
       true;
-  // The same capability gate the agent configuration form uses to show its
-  // login panel (AgentConfigForm.tsx:1064), minus the form's fourth input — a
-  // full adapter test result. The cheap auth signal below stands in for that
-  // input here, so this gate alone only decides whether the login mechanism
-  // could ever apply to the current adapter and environment.
-  const localLoginHealth = useQuery({ queryKey: queryKeys.health, queryFn: healthApi.get });
-  const canUseLocalLogin = Boolean(managedSubscriptionProvider) && resolvedLoginEnvironment?.driver === "local" && (localLoginHealth.data?.localAiLoginSupported ?? localLoginHealth.data?.deploymentMode === "local_trusted");
-  const localLogin = useLocalAiLogin(createdCompanyId, {
-    provider: managedSubscriptionProvider ?? "anthropic", method: "subscription",
-    name: `My ${CONNECT_SOURCE_NAMES[adapterType] ?? managedProvider} subscription`,
-    ownership: "personal", agentIds: [], allAgents: true,
-  }, effectiveOnboardingOpen && step === 4 && canUseLocalLogin && credentialMode !== "api" &&
-    Boolean(managedProvider) && !savedSubscription && !savedKeys.storedLogin.data && !managedBindingForStep(),
-  );
-  // A result from a previous selection must not hire or advance this wizard.
-  // Environment query updates are not user navigation: the test resolves its
-  // own environment, and those updates must not interrupt the pending attempt.
-  useEffect(() => {
-    autoConnectStartedRef.current = false;
-    hiringAgentRef.current = null;
-    if (step === 4) {
-      setLoading(false);
-      setAdapterEnvLoading(false);
-    }
-    return () => { connectAttemptRef.current++; };
-  }, [effectiveOnboardingOpen, createdCompanyId, adapterType, credentialMode, step]);
 
   const canShowAdapterLogin = Boolean(
     adapterCaps.login != null &&
@@ -1115,6 +1092,33 @@ function OnboardingWizardInner({
     createdCompanyId, createdCompanyPrefix, createdAgentId,
     createdCompanyGoalId, createdProjectId, createdIssueRef,
   ]);
+
+  // The same capability gate the agent configuration form uses to show its
+  // login panel (AgentConfigForm.tsx:1064), minus the form's fourth input — a
+  // full adapter test result. The cheap auth signal below stands in for that
+  // input here, so this gate alone only decides whether the login mechanism
+  // could ever apply to the current adapter and environment.
+  const localLoginHealth = useQuery({ queryKey: queryKeys.health, queryFn: healthApi.get });
+  const canUseLocalLogin = Boolean(managedSubscriptionProvider) && resolvedLoginEnvironment?.driver === "local" && (localLoginHealth.data?.localAiLoginSupported ?? localLoginHealth.data?.deploymentMode === "local_trusted");
+  const localLogin = useLocalAiLogin(createdCompanyId, {
+    provider: managedSubscriptionProvider ?? "anthropic", method: "subscription",
+    name: `My ${CONNECT_SOURCE_NAMES[adapterType] ?? managedProvider} subscription`,
+    ownership: "personal", agentIds: [], allAgents: true,
+  }, effectiveOnboardingOpen && step === 4 && canUseLocalLogin && credentialMode !== "api" &&
+    Boolean(managedProvider) && !savedSubscription && !savedKeys.storedLogin.data && !managedBindingForStep(),
+  );
+  // A result from a previous selection must not hire or advance this wizard.
+  // Environment query updates are not user navigation: the test resolves its
+  // own environment, and those updates must not interrupt the pending attempt.
+  useEffect(() => {
+    autoConnectStartedRef.current = false;
+    hiringAgentRef.current = null;
+    if (step === 4) {
+      setLoading(false);
+      setAdapterEnvLoading(false);
+    }
+    return () => { connectAttemptRef.current++; };
+  }, [effectiveOnboardingOpen, createdCompanyId, adapterType, credentialMode, step]);
 
   /**
    * Restores the connect sequence after a reload.

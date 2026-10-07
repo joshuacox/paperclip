@@ -7,6 +7,8 @@ describe("adapterSupportsAiConnections", () => {
     expect(adapterSupportsAiConnections("codex_local")).toBe(true);
     expect(adapterSupportsAiConnections("opencode_local")).toBe(true);
     expect(adapterSupportsAiConnections("grok_local")).toBe(true);
+    expect(adapterSupportsAiConnections("agy_local")).toBe(true);
+    expect(adapterSupportsAiConnections("gemini_local")).toBe(true);
   });
 
   it("handles paperclip_runner with supported and unsupported providers", () => {
@@ -19,8 +21,6 @@ describe("adapterSupportsAiConnections", () => {
   });
 
   it("returns false for adapters that do not use AI connections", () => {
-    expect(adapterSupportsAiConnections("agy_local")).toBe(false);
-    expect(adapterSupportsAiConnections("gemini_local")).toBe(false);
     expect(adapterSupportsAiConnections("kimi_local")).toBe(false);
     expect(adapterSupportsAiConnections("cursor")).toBe(false);
     expect(adapterSupportsAiConnections("process")).toBe(false);

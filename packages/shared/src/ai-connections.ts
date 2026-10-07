@@ -257,7 +257,7 @@ export type CreateAiConnection = z.infer<typeof createAiConnectionSchema>;
 
 export const aiConnectionLoginIntentSchema = z
   .object({
-    provider: z.enum(["anthropic", "openai", "xai"]),
+    provider: z.enum(["anthropic", "openai", "xai", "antigravity"]),
     method: z.literal("subscription"),
     name: z.string().trim().min(1).max(160),
     ownership: z.enum(["personal", "shared"]),
