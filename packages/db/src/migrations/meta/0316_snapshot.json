@@ -1,5 +1,5 @@
 {
-  "id": "630bae46-8459-4a1d-9534-fbc5e951d222",
+  "id": "2242ec8f-2d13-46d2-99ed-cf97a52466d2",
   "prevId": "26691ae0-39a8-42ac-868d-e36ab7219073",
   "version": "7",
   "dialect": "postgresql",
@@ -408,13 +408,19 @@
           "name": "run_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "decision_invocation_id": {
+          "name": "decision_invocation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "agent_id": {
           "name": "agent_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "project_id": {
           "name": "project_id",
@@ -456,6 +462,27 @@
         }
       },
       "indexes": {
+        "budget_reservations_decision_idx": {
+          "name": "budget_reservations_decision_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "decision_invocation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "budget_reservations_run_idx": {
           "name": "budget_reservations_run_idx",
           "columns": [
@@ -551,6 +578,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "budget_reservations_source_check": {
+          "name": "budget_reservations_source_check",
+          "value": "(\"budget_reservations\".\"run_id\" is not null)::int + (\"budget_reservations\".\"decision_invocation_id\" is not null)::int = 1"
+        },
         "budget_reservations_state_check": {
           "name": "budget_reservations_state_check",
           "value": "\"budget_reservations\".\"state\" in ('held', 'settled', 'released')"
@@ -4235,7 +4266,7 @@
       "checkConstraints": {
         "ai_connection_defaults_provider_check": {
           "name": "ai_connection_defaults_provider_check",
-          "value": "\"ai_connection_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google','antigravity')"
+          "value": "\"ai_connection_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google')"
         },
         "ai_connection_defaults_method_check": {
           "name": "ai_connection_defaults_method_check",
@@ -4708,7 +4739,7 @@
       "checkConstraints": {
         "ai_provider_defaults_provider_check": {
           "name": "ai_provider_defaults_provider_check",
-          "value": "\"ai_provider_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google','antigravity')"
+          "value": "\"ai_provider_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google')"
         }
       },
       "isRLSEnabled": false
@@ -17284,7 +17315,20 @@
           "name": "agent_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "usage_kind": {
+          "name": "usage_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'agent'"
+        },
+        "responsible_user_id": {
+          "name": "responsible_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "issue_id": {
           "name": "issue_id",
@@ -17732,9 +17776,353 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "cost_events_usage_kind_check": {
+          "name": "cost_events_usage_kind_check",
+          "value": "\"cost_events\".\"usage_kind\" = 'decision' or (\"cost_events\".\"usage_kind\" = 'agent' and \"cost_events\".\"agent_id\" is not null)"
+        },
         "cost_events_nonnegative_amounts": {
           "name": "cost_events_nonnegative_amounts",
           "value": "\"cost_events\".\"cost_cents\" >= 0 and \"cost_events\".\"input_tokens\" >= 0 and \"cost_events\".\"cached_input_tokens\" >= 0 and \"cost_events\".\"output_tokens\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.company_decision_models": {
+      "name": "company_decision_models",
+      "schema": "",
+      "columns": {
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "grant_id": {
+          "name": "grant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "enabled": {
+          "name": "enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "allow_background": {
+          "name": "allow_background",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "company_decision_models_company_id_companies_id_fk": {
+          "name": "company_decision_models_company_id_companies_id_fk",
+          "tableFrom": "company_decision_models",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "company_decisions_configured": {
+          "name": "company_decisions_configured",
+          "value": "(\"company_decision_models\".\"connection_id\" is null) = (\"company_decision_models\".\"grant_id\" is null) and (not \"company_decision_models\".\"enabled\" or (\"company_decision_models\".\"connection_id\" is not null and \"company_decision_models\".\"provider\" is not null and \"company_decision_models\".\"model\" is not null))"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.decision_invocations": {
+      "name": "decision_invocations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "feature": {
+          "name": "feature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_type": {
+          "name": "actor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "responsible_user_id": {
+          "name": "responsible_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "issue_id": {
+          "name": "issue_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "project_id": {
+          "name": "project_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "identity_context_id": {
+          "name": "identity_context_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "grant_id": {
+          "name": "grant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "question_types": {
+          "name": "question_types",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'running'"
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_request_id": {
+          "name": "provider_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cost_event_id": {
+          "name": "cost_event_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "input_tokens": {
+          "name": "input_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "output_tokens": {
+          "name": "output_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "decision_invocations_company_started_idx": {
+          "name": "decision_invocations_company_started_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "decision_invocations_pending_idx": {
+          "name": "decision_invocations_pending_idx",
+          "columns": [
+            {
+              "expression": "started_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"decision_invocations\".\"status\" = 'running'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "decision_invocations_cost_idx": {
+          "name": "decision_invocations_cost_idx",
+          "columns": [
+            {
+              "expression": "cost_event_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "decision_invocations_company_id_companies_id_fk": {
+          "name": "decision_invocations_company_id_companies_id_fk",
+          "tableFrom": "decision_invocations",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "decision_invocations_cost_event_id_cost_events_id_fk": {
+          "name": "decision_invocations_cost_event_id_cost_events_id_fk",
+          "tableFrom": "decision_invocations",
+          "tableTo": "cost_events",
+          "columnsFrom": [
+            "cost_event_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "decision_invocations_status_check": {
+          "name": "decision_invocations_status_check",
+          "value": "\"decision_invocations\".\"status\" in ('running', 'succeeded', 'failed', 'unknown')"
         }
       },
       "isRLSEnabled": false
