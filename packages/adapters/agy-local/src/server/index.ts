@@ -31,6 +31,10 @@ export {
   evaluateAgyCredentialReadiness,
   resolveAgyOAuthTokenPath,
   hasUsableAgyOAuthToken,
+  parseAgyOAuthToken,
+  resolveAgySettingsPath,
+  ensureAgyApiKeySettings,
+  decideAgyAuthMerge,
   type AgyCredentialReadiness,
   type AgyCredentialReadinessInput,
 } from "./credentials.js";

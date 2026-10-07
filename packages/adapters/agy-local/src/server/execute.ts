@@ -56,6 +56,7 @@ import {
   syncSkillsForRun,
 } from "./skills.js";
 import { inferModelProvider } from "./models.js";
+import { ensureAgyApiKeySettings } from "./credentials.js";
 import { DEFAULT_AGY_LOCAL_MODEL } from "../index.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -274,6 +275,19 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   const runtimeEnv: Record<string, string> = Object.fromEntries(
     Object.entries(rawEnv).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   );
+
+  if (runtimeEnv.GEMINI_API_KEY && !executionTargetIsRemote) {
+    try {
+      await ensureAgyApiKeySettings(runtimeEnv.HOME || os.homedir(), runtimeEnv);
+    } catch (err) {
+      await onLog(
+        "stdout",
+        `[paperclip] Warning: could not write agy settings.json: ${
+          err instanceof Error ? err.message : String(err)
+        }\n`,
+      );
+    }
+  }
 
   const timeoutSec = resolveAdapterExecutionTargetTimeoutSec(
     executionTarget,
