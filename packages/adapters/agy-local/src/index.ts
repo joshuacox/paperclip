@@ -2,6 +2,8 @@ export const type = "agy_local";
 export const label = "Antigravity (agy)";
 
 export const DEFAULT_AGY_LOCAL_MODEL = "gemini-3.8-flash-high";
+export const DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL = "gemini-3.8-flash-low";
+export const DEFAULT_AGY_LOCAL_ROUTINE_MODEL = DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL;
 
 export function modelHasEffortSuffix(model: string): boolean {
   return /-(?:low|medium|high)$/i.test(model.trim());

@@ -55,7 +55,7 @@ export function parseAgyStdoutLine(line: string, ts: string): TranscriptEntry[] 
       }
       const textDelta = asString(stepUpdate.text_delta);
       if (textDelta) {
-        entries.push({ kind: "assistant", ts, text: textDelta });
+        entries.push({ kind: "assistant", ts, text: textDelta, delta: true });
       }
       return entries;
     }

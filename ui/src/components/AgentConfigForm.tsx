@@ -1,5 +1,5 @@
 import { AiConnectionField } from "./ai-connections/AiConnectionField";
-import { aiConnectionBindingSchema } from "@paperclipai/shared";
+import { aiConnectionBindingSchema, adapterSupportsAiConnections } from "@paperclipai/shared";
 import { testAgentSetup } from "@/lib/test-agent-setup";
 import { setupEfforts } from "../lib/agent-setup-fields";
 import { RuntimeTestCard } from "./RuntimeTestCard";
@@ -1656,10 +1656,12 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                   } else {
                     // Clear all adapter config and explicitly blank out model + effort/mode keys
                     // so the old adapter's values don't bleed through via eff()
-                    setOverlay((prev) => ({
-                      ...prev,
-                      adapterType: t,
-                      adapterConfig: {
+                    const newSupportsAi = adapterSupportsAiConnections(t);
+                    setOverlay((prev) => {
+                      const nextOverlay = {
+                        ...prev,
+                        adapterType: t,
+                        adapterConfig: {
                         model:
                           t === "gemini_local"
                             ? DEFAULT_GEMINI_LOCAL_MODEL
@@ -1688,8 +1690,21 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
                                 ...paperclipRunnerTransitionConfig(adapterType, eff("adapterConfig", "model", config.model)),
                               }
                           : {}),
-                      },
-                    }));
+                        },
+                      };
+                      if (!newSupportsAi) {
+                        const currentRc = ((prev.runtime.runtimeConfig as Record<string, unknown> | undefined) ?? runtimeConfig);
+                        if (currentRc && "aiConnection" in currentRc) {
+                          const nextRc = { ...currentRc };
+                          delete nextRc.aiConnection;
+                          nextOverlay.runtime = {
+                            ...prev.runtime,
+                            runtimeConfig: nextRc,
+                          };
+                        }
+                      }
+                      return nextOverlay;
+                    });
                   }
                 }}
               />

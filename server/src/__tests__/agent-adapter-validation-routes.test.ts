@@ -465,6 +465,62 @@ describe("agent routes adapter validation", () => {
     expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
   });
 
+  it("drops stale AI connection without 422 when updating agent to an adapter that does not support AI connections", async () => {
+    const agentId = "11111111-1111-4111-8111-111111111111";
+    mockAgentService.getById.mockResolvedValue({
+      id: agentId,
+      companyId: "company-1",
+      name: "Claude",
+      urlKey: "claude",
+      role: "engineer",
+      title: null,
+      icon: null,
+      status: "idle",
+      reportsTo: null,
+      capabilities: null,
+      adapterType: "claude_local",
+      adapterConfig: { model: "claude-haiku-4-5" },
+      runtimeConfig: {
+        aiConnection: {
+          provider: "anthropic",
+          method: "api_key",
+          mode: "responsible_user",
+        },
+      },
+      budgetMonthlyCents: 0,
+      spentMonthlyCents: 0,
+      pauseReason: null,
+      pausedAt: null,
+      permissions: { canCreateAgents: false },
+      lastHeartbeatAt: null,
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    mockAgentService.update.mockResolvedValue({
+      id: agentId,
+      companyId: "company-1",
+      adapterType: "agy_local",
+      adapterConfig: { model: "gemini-3.8-flash-low" },
+      runtimeConfig: {},
+    });
+    const app = await createApp();
+    const res = await requestApp(app, (baseUrl) =>
+      request(baseUrl)
+        .patch(`/api/agents/${agentId}`)
+        .send({
+          adapterType: "agy_local",
+          adapterConfig: { model: "gemini-3.8-flash-low" },
+        }),
+    );
+
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    const patch = mockAgentService.update.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(patch.adapterType).toBe("agy_local");
+    const runtimeConfig = patch.runtimeConfig as Record<string, unknown> | undefined;
+    expect(runtimeConfig?.aiConnection).toBeUndefined();
+  });
+
   it("isolates CODEX_HOME when updating a codex_local agent to set its own OPENAI_API_KEY", async () => {
     const agentId = "11111111-1111-4111-8111-111111111111";
     const app = await createApp();
