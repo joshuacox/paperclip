@@ -175,6 +175,7 @@ describe("agy-local execute", () => {
 
   it("does not rewrite model to an invalid model ID when effort override is not supported by that model family", async () => {
     let capturedMeta: AdapterInvocationMeta | null = null;
+    const logs: string[] = [];
 
     const ctx: AdapterExecutionContext = {
       runId: "run-model-effort-override-unsupported",
@@ -200,7 +201,9 @@ describe("agy-local execute", () => {
           cwd: "/tmp/workspace",
         },
       },
-      onLog: async () => {},
+      onLog: async (_stream, text) => {
+        logs.push(text);
+      },
       onMeta: async (meta) => {
         capturedMeta = meta;
       },
@@ -214,6 +217,7 @@ describe("agy-local execute", () => {
     expect(commandArgs).toContain("--model");
     expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("gpt-oss-120b-medium");
     expect(commandArgs).not.toContain("--effort");
+    expect(logs.join("")).toContain('Warning: Model "gpt-oss-120b-medium" does not have a "high" variant; running with "gpt-oss-120b-medium".');
   });
 
   it("passes --conversation when resuming a previous session", async () => {

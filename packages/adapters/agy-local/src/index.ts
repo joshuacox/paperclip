@@ -18,25 +18,31 @@ export function modelHasEffortSuffix(model: string): boolean {
 export function resolveAgyModelEffort(
   model: string,
   effort?: string | null,
-): { model: string; effort: string | null } {
+): { model: string; effort: string | null; warning: string | null } {
   const trimmedModel = (model || "").trim();
   const trimmedEffort = (effort || "").trim().toLowerCase();
 
   if (!trimmedEffort) {
-    return { model: trimmedModel, effort: null };
+    return { model: trimmedModel, effort: null, warning: null };
   }
 
   if (modelHasEffortSuffix(trimmedModel)) {
     const candidateModel = trimmedModel.replace(/-(?:low|medium|high)$/i, `-${trimmedEffort}`);
     if (models.some((m) => m.id.toLowerCase() === candidateModel.toLowerCase())) {
-      return { model: candidateModel, effort: null };
+      return { model: candidateModel, effort: null, warning: null };
     }
+    const currentSuffixMatch = trimmedModel.match(/-(low|medium|high)$/i);
+    const currentEffort = currentSuffixMatch ? currentSuffixMatch[1].toLowerCase() : null;
+    const warning =
+      currentEffort && currentEffort === trimmedEffort
+        ? null
+        : `Model "${trimmedModel}" does not have a "${trimmedEffort}" variant; running with "${trimmedModel}".`;
     // Resulting model would be invalid (e.g. gpt-oss-120b-high or gemini-3.1-pro-medium).
     // Preserve the original model and omit --effort to avoid conflicting CLI arguments or invalid model IDs.
-    return { model: trimmedModel, effort: null };
+    return { model: trimmedModel, effort: null, warning };
   }
 
-  return { model: trimmedModel, effort: trimmedEffort };
+  return { model: trimmedModel, effort: trimmedEffort, warning: null };
 }
 
 export const models = [

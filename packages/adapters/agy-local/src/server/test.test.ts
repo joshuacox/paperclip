@@ -263,7 +263,7 @@ describe("agy-local testEnvironment", () => {
     expect(args).not.toContain("--effort");
   });
 
-  it("does not rewrite to invalid model ID when effort override is unsupported in testEnvironment", async () => {
+  it("does not rewrite to invalid model ID when effort override is unsupported in testEnvironment and records a warning check", async () => {
     const ctx: AdapterEnvironmentTestContext = {
       companyId: "company-1",
       adapterType: "agy_local",
@@ -274,7 +274,16 @@ describe("agy-local testEnvironment", () => {
     };
 
     const result = await testEnvironment(ctx);
-    expect(result.status).toBe("pass");
+    expect(result.status).toBe("warn");
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: "agy_model_effort_unsupported",
+          level: "warn",
+          message: 'Model "gpt-oss-120b-medium" does not have a "high" variant; running with "gpt-oss-120b-medium".',
+        }),
+      ]),
+    );
 
     expect(capturedRuns).toHaveLength(1);
     const args = capturedRuns[0].args;

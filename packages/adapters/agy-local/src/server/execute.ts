@@ -658,6 +658,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     };
   };
 
+  const resolvedModelEffort = resolveAgyModelEffort(model, effort);
+  if (resolvedModelEffort.warning) {
+    await onLog("stdout", `[paperclip] Warning: ${resolvedModelEffort.warning}\n`);
+  }
+
   const initial = await runAttempt(sessionId);
   const initialFailed =
     !initial.proc.timedOut && resolveAgyRunOutcome(initial.parsed, initial.proc.exitCode).failed;

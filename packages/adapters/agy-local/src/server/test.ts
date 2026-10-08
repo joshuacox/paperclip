@@ -148,6 +148,13 @@ export async function testEnvironment(
     if (sandbox) args.push("--sandbox");
     if (agentPersona) args.push("--agent", agentPersona);
     const resolvedModelEffort = resolveAgyModelEffort(model, effort);
+    if (resolvedModelEffort.warning) {
+      checks.push({
+        code: "agy_model_effort_unsupported",
+        level: "warn",
+        message: resolvedModelEffort.warning,
+      });
+    }
     if (resolvedModelEffort.model) args.push("--model", resolvedModelEffort.model);
     if (resolvedModelEffort.effort) args.push("--effort", resolvedModelEffort.effort);
     if (mode) args.push("--mode", mode);
