@@ -1,8 +1,12 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { AdapterExecutionContext, AdapterInvocationMeta } from "@paperclipai/adapter-utils";
 import { runChildProcess } from "@paperclipai/adapter-utils/server-utils";
 import { discoverAgySessionArtifacts, execute, modelHasEffortSuffix, resolveAgyPrintTimeoutSec } from "./execute.js";
 import { DENIED_ACTION_RUN, SIMPLE_RUN, TOOL_ERROR_RECOVERED_RUN } from "./fixtures.test-util.js";
+import * as mcpModule from "./mcp.js";
 
 vi.mock("@paperclipai/adapter-utils/server-utils", async () => {
   const actual = await vi.importActual<typeof import("@paperclipai/adapter-utils/server-utils")>(
@@ -793,6 +797,87 @@ describe("agy-local execute run outcome", () => {
     expect(calls.length).toBeGreaterThan(0);
     const lastCallOptions = calls[calls.length - 1][3] as { stdin?: string };
     expect(lastCallOptions?.stdin).toBeUndefined();
+  });
+
+  it("delivers runtime connection tools via environment and configures MCP servers", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "agy-exec-mcp-"));
+
+    try {
+      const cleanupSpy = vi.fn(async () => {});
+      const writeMcpSpy = vi.spyOn(mcpModule, "writePaperclipAgyMcpConfig").mockResolvedValueOnce({
+        configPath: path.join(tempHome, ".gemini", "config", "mcp_config.json"),
+        injectedServerNames: ["Paperclip connections"],
+        cleanup: cleanupSpy,
+      });
+
+      const ctx: AdapterExecutionContext = {
+        runId: "run-mcp-1",
+        agent: {
+          id: "agent-1",
+          companyId: "company-1",
+          name: "Test Agent",
+          adapterType: "agy_local",
+          adapterConfig: {},
+        },
+        runtime: {
+          sessionId: null,
+          sessionParams: null,
+          sessionDisplayId: null,
+          taskKey: null,
+        },
+        config: {
+          env: {
+            HOME: tempHome,
+          },
+        },
+        context: {},
+        runtimeMcp: {
+          getServers: () => [
+            {
+              name: "Paperclip connections",
+              url: "https://api.paperclip.test/mcp/connections",
+              token: "tok-123",
+              connectionId: "conn-123",
+            },
+          ],
+        },
+        runtimeTools: {
+          version: 1,
+          guidance: "Use these tools",
+          mcpEndpoint: "https://api.paperclip.test/mcp/connections",
+          rest: {
+            connectionsSearch: "https://api.paperclip.test/connections/search",
+            connectionRequest: "https://api.paperclip.test/connections/request",
+          },
+          bearerToken: "tok-123",
+          expiresAt: "2026-10-09T00:00:00Z",
+          tools: ["connections_search", "connection_request"],
+        },
+        onLog: async () => {},
+        onMeta: async (meta) => {
+          capturedMeta = meta;
+        },
+      };
+
+      const result = await execute(ctx);
+      expect(result.exitCode).toBe(0);
+      expect(writeMcpSpy).toHaveBeenCalledOnce();
+      expect(cleanupSpy).toHaveBeenCalledOnce();
+
+      expect(capturedMeta!.env!.PAPERCLIP_RUNTIME_TOOLS_MCP_URL).toBe(
+        "https://api.paperclip.test/mcp/connections",
+      );
+      expect(capturedMeta!.env!.PAPERCLIP_RUNTIME_TOOLS_TOKEN).toBe("***REDACTED***");
+      const calls = vi.mocked(runChildProcess).mock.calls;
+      const lastCallOptions = calls[calls.length - 1][3] as { env?: Record<string, string> };
+      expect(lastCallOptions?.env?.PAPERCLIP_RUNTIME_TOOLS_TOKEN).toBe("tok-123");
+      expect(result.sessionParams?.mcpServerIdentity).toBeDefined();
+
+      writeMcpSpy.mockRestore();
+    } finally {
+      await fs.rm(tempHome, { recursive: true, force: true }).catch(() => undefined);
+    }
   });
 });
 

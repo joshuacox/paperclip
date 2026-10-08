@@ -884,7 +884,7 @@ const piLocalAdapter: ServerAdapterModule = {
 
 const agyLocalAdapter: ServerAdapterModule = {
   type: "agy_local",
-  runtimeToolDelivery: "environment",
+  runtimeToolDelivery: "native_mcp",
   execute: agyExecute,
   testEnvironment: agyTestEnvironment,
   listSkills: listAgySkills,

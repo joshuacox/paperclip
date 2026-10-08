@@ -23,6 +23,7 @@ import {
   asStringArray,
   buildInvocationEnvForLogs,
   buildPaperclipEnv,
+  buildRuntimeToolsEnv,
   DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE,
   ensureAbsoluteDirectory,
   ensurePathInEnv,
@@ -57,6 +58,7 @@ import {
 } from "./skills.js";
 import { inferModelProvider } from "./models.js";
 import { ensureAgyApiKeySettings } from "./credentials.js";
+import { writePaperclipAgyMcpConfig } from "./mcp.js";
 import { DEFAULT_AGY_LOCAL_MODEL, resolveAgyModelEffort } from "../index.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -219,7 +221,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   }
 
   const envConfig = parseObject(config.env);
-  const env: Record<string, string> = { ...buildPaperclipEnv(agent) };
+  const env: Record<string, string> = {
+    ...buildPaperclipEnv(agent),
+    ...buildRuntimeToolsEnv(ctx.runtimeTools),
+  };
   env.PAPERCLIP_RUN_ID = runId;
   const wakeTaskId =
     (typeof context.taskId === "string" && context.taskId.trim().length > 0 && context.taskId.trim()) ||
@@ -593,6 +598,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
           ...(workspaceId ? { workspaceId } : {}),
           ...(workspaceRepoUrl ? { repoUrl: workspaceRepoUrl } : {}),
           ...(workspaceRepoRef ? { repoRef: workspaceRepoRef } : {}),
+          ...(runtimeMcpServers.length > 0 ? { mcpServerIdentity: runtimeMcpIdentity } : {}),
           ...(executionTargetIsRemote
             ? {
                 remoteExecution: adapterExecutionTargetSessionIdentity(runtimeExecutionTarget),
@@ -663,50 +669,83 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     await onLog("stdout", `[paperclip] Warning: ${resolvedModelEffort.warning}\n`);
   }
 
-  const initial = await runAttempt(sessionId);
-  const initialFailed =
-    !initial.proc.timedOut && resolveAgyRunOutcome(initial.parsed, initial.proc.exitCode).failed;
+  const runtimeMcpServers = ctx.runtimeMcp?.getServers() ?? [];
+  const runtimeMcpIdentity = JSON.stringify(
+    runtimeMcpServers.map(({ name, url, connectionId }) => ({ name, url, connectionId })),
+  );
 
-  let finalAttempt: Attempt = initial;
-  let finalResult: AdapterExecutionResult;
-  if (
-    sessionId &&
-    initialFailed &&
-    (isAgyUnknownSessionError({
-      stdout: initial.proc.stdout,
-      stderr: initial.rawStderr,
-      errorMessage: initial.parsed.errorMessage,
-    }) ||
-      isAgySessionUnrecoverableError(initial.proc.stdout, initial.rawStderr))
-  ) {
-    await onLog(
-      "stdout",
-      `[paperclip] Antigravity conversation "${sessionId}" is unavailable; retrying with a fresh session.\n`,
-    );
-    const retry = await runAttempt(null);
-    finalAttempt = retry;
-    finalResult = toResult(retry, true);
-  } else {
-    finalResult = toResult(initial);
-  }
-
-  if (finalAttempt.parsed.deniedActions.length > 0) {
-    await onLog("stdout", `[paperclip] ${describeAgyDeniedActions(finalAttempt.parsed.deniedActions)}\n`);
-  }
-
-  if (finalResult.sessionId && !executionTargetIsRemote) {
-    const artifacts = await discoverAgySessionArtifacts(finalResult.sessionId);
-    if (artifacts.length > 0) {
+  let mcpCleanup: (() => Promise<void>) | null = null;
+  if (runtimeMcpServers.length > 0 && !executionTargetIsRemote) {
+    try {
+      const mcpResult = await writePaperclipAgyMcpConfig({
+        homedir: runtimeEnv.HOME || os.homedir(),
+        env: runtimeEnv,
+        servers: runtimeMcpServers,
+        runId,
+      });
+      mcpCleanup = mcpResult.cleanup;
       await onLog(
         "stdout",
-        `[paperclip] Discovered ${artifacts.length} Antigravity artifact(s):\n${artifacts.map((a) => `  - ${a}`).join("\n")}\n`,
+        `[paperclip] Configured ${runtimeMcpServers.length} Paperclip-managed MCP server(s) in ${mcpResult.configPath}.\n`,
       );
-      finalResult.resultJson = {
-        ...(finalResult.resultJson as Record<string, unknown> | undefined),
-        artifacts,
-      };
+    } catch (err) {
+      await onLog(
+        "stdout",
+        `[paperclip] Warning: could not write Antigravity MCP config: ${
+          err instanceof Error ? err.message : String(err)
+        }\n`,
+      );
     }
   }
 
-  return finalResult;
+  try {
+    const initial = await runAttempt(sessionId);
+    const initialFailed =
+      !initial.proc.timedOut && resolveAgyRunOutcome(initial.parsed, initial.proc.exitCode).failed;
+
+    let finalAttempt: Attempt = initial;
+    let finalResult: AdapterExecutionResult;
+    if (
+      sessionId &&
+      initialFailed &&
+      (isAgyUnknownSessionError({
+        stdout: initial.proc.stdout,
+        stderr: initial.rawStderr,
+        errorMessage: initial.parsed.errorMessage,
+      }) ||
+        isAgySessionUnrecoverableError(initial.proc.stdout, initial.rawStderr))
+    ) {
+      await onLog(
+        "stdout",
+        `[paperclip] Antigravity conversation "${sessionId}" is unavailable; retrying with a fresh session.\n`,
+      );
+      const retry = await runAttempt(null);
+      finalAttempt = retry;
+      finalResult = toResult(retry, true);
+    } else {
+      finalResult = toResult(initial);
+    }
+
+    if (finalAttempt.parsed.deniedActions.length > 0) {
+      await onLog("stdout", `[paperclip] ${describeAgyDeniedActions(finalAttempt.parsed.deniedActions)}\n`);
+    }
+
+    if (finalResult.sessionId && !executionTargetIsRemote) {
+      const artifacts = await discoverAgySessionArtifacts(finalResult.sessionId);
+      if (artifacts.length > 0) {
+        await onLog(
+          "stdout",
+          `[paperclip] Discovered ${artifacts.length} Antigravity artifact(s):\n${artifacts.map((a) => `  - ${a}`).join("\n")}\n`,
+        );
+        finalResult.resultJson = {
+          ...(finalResult.resultJson as Record<string, unknown> | undefined),
+          artifacts,
+        };
+      }
+    }
+
+    return finalResult;
+  } finally {
+    await mcpCleanup?.().catch(() => undefined);
+  }
 }
