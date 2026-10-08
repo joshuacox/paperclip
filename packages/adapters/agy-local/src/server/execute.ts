@@ -57,7 +57,7 @@ import {
 } from "./skills.js";
 import { inferModelProvider } from "./models.js";
 import { ensureAgyApiKeySettings } from "./credentials.js";
-import { DEFAULT_AGY_LOCAL_MODEL } from "../index.js";
+import { DEFAULT_AGY_LOCAL_MODEL, resolveAgyModelEffort } from "../index.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -77,6 +77,8 @@ function firstNonEmptyLine(text: string): string {
 export function modelHasEffortSuffix(model: string): boolean {
   return /-(?:low|medium|high)$/i.test(model.trim());
 }
+
+export { resolveAgyModelEffort };
 
 /**
  * Set agy's --print-timeout slightly below Paperclip's timeoutSec so agy exits cleanly
@@ -458,19 +460,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (agentPersona) {
       args.push("--agent", agentPersona);
     }
-    let effectiveModel = model;
-    let effectiveEffort: string | null = effort || null;
-    if (effort) {
-      if (modelHasEffortSuffix(model)) {
-        effectiveModel = model.replace(/-(?:low|medium|high)$/i, `-${effort}`);
-        effectiveEffort = null;
-      }
+    const resolvedModelEffort = resolveAgyModelEffort(model, effort);
+    if (resolvedModelEffort.model) {
+      args.push("--model", resolvedModelEffort.model);
     }
-    if (effectiveModel) {
-      args.push("--model", effectiveModel);
-    }
-    if (effectiveEffort) {
-      args.push("--effort", effectiveEffort);
+    if (resolvedModelEffort.effort) {
+      args.push("--effort", resolvedModelEffort.effort);
     }
     if (mode) {
       args.push("--mode", mode);

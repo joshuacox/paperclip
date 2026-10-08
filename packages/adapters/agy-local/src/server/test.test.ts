@@ -263,6 +263,26 @@ describe("agy-local testEnvironment", () => {
     expect(args).not.toContain("--effort");
   });
 
+  it("does not rewrite to invalid model ID when effort override is unsupported in testEnvironment", async () => {
+    const ctx: AdapterEnvironmentTestContext = {
+      companyId: "company-1",
+      adapterType: "agy_local",
+      config: {
+        model: "gpt-oss-120b-medium",
+        effort: "high",
+      },
+    };
+
+    const result = await testEnvironment(ctx);
+    expect(result.status).toBe("pass");
+
+    expect(capturedRuns).toHaveLength(1);
+    const args = capturedRuns[0].args;
+    expect(args).toContain("--model");
+    expect(args[args.indexOf("--model") + 1]).toBe("gpt-oss-120b-medium");
+    expect(args).not.toContain("--effort");
+  });
+
   it("records a warning if probe times out", async () => {
     probeResult.value = {
       exitCode: 1,

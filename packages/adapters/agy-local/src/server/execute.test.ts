@@ -173,6 +173,49 @@ describe("agy-local execute", () => {
     expect(commandArgs).not.toContain("--effort");
   });
 
+  it("does not rewrite model to an invalid model ID when effort override is not supported by that model family", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-model-effort-override-unsupported",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Test Agent",
+        adapterType: "agy_local",
+        adapterConfig: {
+          model: "gpt-oss-120b-medium",
+          effort: "high",
+        },
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: "/tmp/workspace",
+        },
+      },
+      onLog: async () => {},
+      onMeta: async (meta) => {
+        capturedMeta = meta;
+      },
+    };
+
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+
+    expect(capturedMeta).not.toBeNull();
+    const commandArgs = capturedMeta!.commandArgs as string[];
+    expect(commandArgs).toContain("--model");
+    expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("gpt-oss-120b-medium");
+    expect(commandArgs).not.toContain("--effort");
+  });
+
   it("passes --conversation when resuming a previous session", async () => {
     let capturedMeta: AdapterInvocationMeta | null = null;
 

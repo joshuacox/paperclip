@@ -9,6 +9,36 @@ export function modelHasEffortSuffix(model: string): boolean {
   return /-(?:low|medium|high)$/i.test(model.trim());
 }
 
+/**
+ * Resolves the effective model and effort argument for agy CLI.
+ * If effort is specified and the model has an effort suffix, we only rewrite the suffix
+ * if the resulting model ID is a recognized valid model. Otherwise, we keep the original model
+ * without emitting an invalid model ID or conflicting CLI flags.
+ */
+export function resolveAgyModelEffort(
+  model: string,
+  effort?: string | null,
+): { model: string; effort: string | null } {
+  const trimmedModel = (model || "").trim();
+  const trimmedEffort = (effort || "").trim().toLowerCase();
+
+  if (!trimmedEffort) {
+    return { model: trimmedModel, effort: null };
+  }
+
+  if (modelHasEffortSuffix(trimmedModel)) {
+    const candidateModel = trimmedModel.replace(/-(?:low|medium|high)$/i, `-${trimmedEffort}`);
+    if (models.some((m) => m.id.toLowerCase() === candidateModel.toLowerCase())) {
+      return { model: candidateModel, effort: null };
+    }
+    // Resulting model would be invalid (e.g. gpt-oss-120b-high or gemini-3.1-pro-medium).
+    // Preserve the original model and omit --effort to avoid conflicting CLI arguments or invalid model IDs.
+    return { model: trimmedModel, effort: null };
+  }
+
+  return { model: trimmedModel, effort: trimmedEffort };
+}
+
 export const models = [
   { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
   { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
