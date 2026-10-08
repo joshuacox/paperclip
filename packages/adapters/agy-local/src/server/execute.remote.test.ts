@@ -17,9 +17,13 @@ const {
   restoreWorkspaceSpy,
   bridgeStopSpy,
   capturedProcessRuns,
+  runLogTailMock,
+  settleRunDispositionMock,
 } = vi.hoisted(() => {
   const restoreWorkspaceSpy = vi.fn(async () => {});
   const bridgeStopSpy = vi.fn(async () => {});
+  const runLogTailMock = { create: vi.fn() };
+  const settleRunDispositionMock = vi.fn();
   const capturedProcessRuns: Array<{
     runId: string;
     target: any;
@@ -32,6 +36,8 @@ const {
     restoreWorkspaceSpy,
     bridgeStopSpy,
     capturedProcessRuns,
+    runLogTailMock,
+    settleRunDispositionMock,
     ensureAdapterExecutionTargetCommandResolvable: vi.fn(async () => {}),
     ensureAdapterExecutionTargetRuntimeCommandInstalled: vi.fn(async () => {}),
     resolveAdapterExecutionTargetCommandForLogs: vi.fn(async (cmd) => cmd),
@@ -47,6 +53,8 @@ const {
         PAPERCLIP_API_KEY: "bridge-token",
         PAPERCLIP_API_BRIDGE_MODE: "queue_v1",
       },
+      runLogTail: runLogTailMock,
+      settleRunDisposition: settleRunDispositionMock,
       stop: bridgeStopSpy,
     })),
     prepareAdapterExecutionTargetRuntime: vi.fn(),
@@ -288,6 +296,9 @@ describe("agy-local execute (remote execution)", () => {
     expect(run.options.env.PAPERCLIP_API_URL).toBe("http://127.0.0.1:4310");
     expect(run.options.env.PAPERCLIP_API_KEY).toBe("bridge-token");
     expect(run.options.env.PAPERCLIP_API_BRIDGE_MODE).toBe("queue_v1");
+    expect(run.options.runLogTail).toBe(runLogTailMock);
+    expect(run.options.settleRunDisposition).toBe(settleRunDispositionMock);
+    expect(typeof run.options.onProcessStopped).toBe("function");
 
     // Bridge stop called in finally
     expect(bridgeStopSpy).toHaveBeenCalled();

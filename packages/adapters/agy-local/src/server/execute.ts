@@ -78,6 +78,7 @@ import {
   resolveAgyModelEffort,
   SANDBOX_INSTALL_COMMAND,
 } from "../index.js";
+import { createProviderStoppedBoundary } from "@paperclipai/adapter-utils/provider-stopped-boundary";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -146,6 +147,7 @@ export async function discoverAgySessionArtifacts(sessionId: string): Promise<st
 
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
   const { runId, agent, runtime, config: rawConfig, context, onLog, onMeta, onSpawn, authToken } = ctx;
+  const providerStop = createProviderStoppedBoundary(ctx.onProviderStopped);
   const executionTarget = readAdapterExecutionTarget({
     executionTarget: ctx.executionTarget,
     legacyRemoteExecution: ctx.executionTransport?.remoteExecution,
@@ -710,6 +712,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       command,
       args,
       {
+        onProcessStopped: providerStop.beginInvocation(),
         cwd: effectiveExecutionCwd,
         env: runtimeEnv,
         stdin,
@@ -718,6 +721,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         onSpawn,
         onRuntimeProgress: ctx.onRuntimeProgress,
         onLog,
+        runLogTail: paperclipBridge?.runLogTail,
+        settleRunDisposition: paperclipBridge?.settleRunDisposition,
       },
     );
 
@@ -935,6 +940,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     return finalResult;
   } finally {
     await mcpCleanup?.().catch(() => undefined);
+    try {
+      await providerStop.collectBeforeRestore();
+    } catch {}
     try {
       await paperclipBridge?.stop();
     } catch {}
