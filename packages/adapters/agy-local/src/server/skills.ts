@@ -68,7 +68,10 @@ export async function unlinkSkillDirectory(target: string): Promise<void> {
       await fs.unlink(target);
       return;
     } catch {
-      await fs.rmdir(target);
+      const recheck = await fs.lstat(target).catch(() => null);
+      if (recheck?.isSymbolicLink()) {
+        await fs.rmdir(target);
+      }
       return;
     }
   }
@@ -520,6 +523,17 @@ export async function syncAgySkills(
 
   await fs.mkdir(root.skillsHome, { recursive: true });
 
+  // Remove links this adapter previously created for skills no longer desired
+  const installedBefore = await readInstalledSkillTargets(root.skillsHome);
+  const managedSources = new Set(availableEntries.map((entry) => entry.source));
+  for (const [runtimeName, installedEntry] of installedBefore) {
+    if (installedEntry.kind !== "symlink") continue;
+    if (!installedEntry.targetPath || !managedSources.has(installedEntry.targetPath)) continue;
+    const entry = availableEntries.find((candidate) => candidate.runtimeName === runtimeName);
+    if (entry && desiredSet.has(entry.key)) continue;
+    await unlinkSkillDirectory(path.join(root.skillsHome, runtimeName)).catch(() => {});
+  }
+
   // Link everything desired
   for (const entry of availableEntries) {
     if (!desiredSet.has(entry.key)) continue;
@@ -548,17 +562,6 @@ export async function syncAgySkills(
         `Failed to link "${entry.runtimeName}": ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-  }
-
-  // Remove links this adapter previously created for skills no longer desired
-  const installedBefore = await readInstalledSkillTargets(root.skillsHome);
-  const managedSources = new Set(availableEntries.map((entry) => entry.source));
-  for (const [runtimeName, installedEntry] of installedBefore) {
-    if (installedEntry.kind !== "symlink") continue;
-    if (!installedEntry.targetPath || !managedSources.has(installedEntry.targetPath)) continue;
-    const entry = availableEntries.find((candidate) => candidate.runtimeName === runtimeName);
-    if (entry && desiredSet.has(entry.key)) continue;
-    await unlinkSkillDirectory(path.join(root.skillsHome, runtimeName)).catch(() => {});
   }
 
   const installed = await readInstalledSkillTargets(root.skillsHome);

@@ -636,7 +636,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       sessionDisplayId: resolvedSessionId,
       provider,
       biller: "google",
-      model: model || null,
+      model: resolvedModelEffort.model || null,
       billingType: "subscription",
       costUsd: attempt.parsed.costUsd ?? 0,
       resultJson: {

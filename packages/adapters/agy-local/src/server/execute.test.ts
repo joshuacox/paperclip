@@ -165,6 +165,7 @@ describe("agy-local execute", () => {
 
     const result = await execute(ctx);
     expect(result.exitCode).toBe(0);
+    expect(result.model).toBe("gemini-3.8-flash-low");
 
     expect(capturedMeta).not.toBeNull();
     const commandArgs = capturedMeta!.commandArgs as string[];
