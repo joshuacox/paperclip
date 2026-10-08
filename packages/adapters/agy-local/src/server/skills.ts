@@ -471,20 +471,6 @@ export async function migrateLegacySkills(
           }
         }
       }
-    } else {
-      // Unmarked or operator-provided shared skill: copy to agent's skillsHome
-      // and keep the original in legacySkillsHome so other companies can also access it.
-      try {
-        if (entry.isSymbolicLink()) {
-          const linkTarget = await fs.readlink(src);
-          await linkSkillDirectory(linkTarget, dest);
-        } else {
-          await fs.cp(src, dest, { recursive: true });
-        }
-        migrated.push(entry.name);
-      } catch {
-        // best-effort
-      }
     }
   }
 

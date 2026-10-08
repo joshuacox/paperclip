@@ -563,11 +563,9 @@ describe("listSkills and syncSkills", () => {
       );
 
       const agent1SkillsHome = path.join(rootPath, agent1Id, ".agents", "skills");
-      expect(
-        await fs.readFile(path.join(agent1SkillsHome, "unmarked-shared", "SKILL.md"), "utf8"),
-      ).toMatch(/Unmarked shared skill/);
+      expect(await fs.lstat(path.join(agent1SkillsHome, "unmarked-shared")).catch(() => null)).toBeNull();
 
-      // Legacy root MUST still contain unmarked-shared so Company 2 is not deprived of it!
+      // Legacy root MUST still contain unmarked-shared and not be touched
       expect(await fs.lstat(path.join(legacySkillsDir, "unmarked-shared")).catch(() => null)).not.toBeNull();
 
       // Company 2 syncs skills
@@ -577,9 +575,7 @@ describe("listSkills and syncSkills", () => {
       );
 
       const agent2SkillsHome = path.join(rootPath, agent2Id, ".agents", "skills");
-      expect(
-        await fs.readFile(path.join(agent2SkillsHome, "unmarked-shared", "SKILL.md"), "utf8"),
-      ).toMatch(/Unmarked shared skill/);
+      expect(await fs.lstat(path.join(agent2SkillsHome, "unmarked-shared")).catch(() => null)).toBeNull();
 
       // Still preserved in legacy root for any future agents / companies
       expect(await fs.lstat(path.join(legacySkillsDir, "unmarked-shared")).catch(() => null)).not.toBeNull();

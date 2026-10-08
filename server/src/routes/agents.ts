@@ -3369,6 +3369,7 @@ export function agentRoutes(
       return;
     }
     const provider = asNonEmptyString(req.query.provider);
+    const acpxAgent = asNonEmptyString(req.query.acpxAgent);
     if (type === "opencode_local" && provider === "openrouter") {
       res.json(await listOpenRouterModels(refresh));
       return;
@@ -3377,9 +3378,11 @@ export function agentRoutes(
       throw unprocessable("Unknown Paperclip Runner provider");
     }
     const modelAdapterType = type === "paperclip_runner"
-      ? provider === "acpx" || provider === "claude_managed" ? "claude_local"
+      ? provider === "acpx"
+        ? acpxAgent === "grok" ? "grok_local" : "claude_local"
+        : provider === "claude_managed" ? "claude_local"
         : provider === "opencode" ? "opencode_local"
-          : provider === "aws_agentcore" ? type : "codex_local"
+        : provider === "aws_agentcore" ? type : "codex_local"
       : type;
     if (modelAdapterType === "opencode_local" && environment && environment.driver !== "local") {
       res.json(requireServerAdapter(modelAdapterType).models ?? []);

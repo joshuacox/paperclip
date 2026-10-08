@@ -344,11 +344,16 @@ describe("agent routes adapter validation", () => {
     const refresh = vi.spyOn(adapters, "refreshAdapterModels").mockImplementation(async (type) => [{ id: `${type}-fresh`, label: type }]);
     try {
       const app = await createApp();
-      for (const [provider, adapter] of [["acpx", "claude_local"], ["codex", "codex_local"], ["opencode", "opencode_local"]]) {
-        const res = await requestApp(app, (baseUrl) => request(baseUrl).get(`/api/companies/company-1/adapters/paperclip_runner/models?provider=${provider}`));
+      for (const [provider, adapter, extraQuery] of [
+        ["acpx", "claude_local", ""],
+        ["acpx", "grok_local", "&acpxAgent=grok"],
+        ["codex", "codex_local", ""],
+        ["opencode", "opencode_local", ""],
+      ]) {
+        const res = await requestApp(app, (baseUrl) => request(baseUrl).get(`/api/companies/company-1/adapters/paperclip_runner/models?provider=${provider}${extraQuery}`));
         expect(res.status).toBe(200);
         expect(res.body).toEqual([{ id: adapter, label: adapter }]);
-        const refreshed = await requestApp(app, (baseUrl) => request(baseUrl).get(`/api/companies/company-1/adapters/paperclip_runner/models?provider=${provider}&refresh=true`));
+        const refreshed = await requestApp(app, (baseUrl) => request(baseUrl).get(`/api/companies/company-1/adapters/paperclip_runner/models?provider=${provider}${extraQuery}&refresh=true`));
         expect(refreshed.status).toBe(200);
         expect(refreshed.body).toEqual([{ id: `${adapter}-fresh`, label: adapter }]);
       }
