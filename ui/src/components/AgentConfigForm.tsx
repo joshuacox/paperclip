@@ -900,9 +900,9 @@ export function AgentConfigForm(props: AgentConfigFormProps) {
     ? String(isCreate ? props.values.adapterSchemaValues?.provider ?? "codex"
       : eff("adapterConfig", "provider", config.provider === "acpx" && config.acpxAgent === "codex" ? "codex" : config.provider ?? "codex"))
     : undefined;
-  const runnerAcpxAgent = adapterType === "paperclip_runner"
-    ? String(isCreate ? props.values.adapterSchemaValues?.acpxAgent ?? ""
-      : eff("adapterConfig", "acpxAgent", config.acpxAgent ?? "")) || undefined
+  const runnerAcpxAgent = adapterType === "paperclip_runner" && runnerProvider === "acpx"
+    ? String(isCreate ? props.values.adapterSchemaValues?.acpxAgent ?? "claude"
+      : eff("adapterConfig", "acpxAgent", config.acpxAgent ?? "claude")) || "claude"
     : undefined;
   const modelProvider = adapterType === "opencode_local" && aiConnectionBindingSchema.safeParse(
     (overlay.runtime.runtimeConfig as Record<string, unknown> | undefined)?.aiConnection ?? runtimeConfig.aiConnection,
