@@ -7,7 +7,7 @@ import { readPaperclipSkillSyncPreference, writePaperclipSkillSyncPreference } f
 import { and, desc, eq, ne } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { activityLog, agents, builtInManagedResources, companies, issueThreadInteractions, issues, routines, routineTriggers } from "@paperclipai/db";
-import { adapterSupportsAiConnections, syncRoutineVariablesWithTemplate } from "@paperclipai/shared";
+import { adapterSupportsAiConnections, aiConnectionBindingSchema, isAiConnectionCompatible, syncRoutineVariablesWithTemplate } from "@paperclipai/shared";
 import type { Agent, Approval, CompanySkill, PermissionKey, Routine, RoutineTrigger, RoutineVariable } from "@paperclipai/shared";
 import { conflict, HttpError, notFound, unprocessable } from "../errors.js";
 import { logActivity } from "./activity-log.js";
@@ -1783,10 +1783,25 @@ export function builtInAgentService(db: Db) {
         patch.adapterConfig = resolvedInput.adapterConfig
           ? { ...defaults, ...resolvedInput.adapterConfig }
           : (adapterType !== existing.adapterType ? defaults : existing.adapterConfig);
-        if (!adapterSupportsAiConnections(adapterType) && existing.runtimeConfig?.aiConnection) {
-          const nextRc = { ...existing.runtimeConfig };
-          delete nextRc.aiConnection;
-          patch.runtimeConfig = nextRc;
+        if (existing.runtimeConfig?.aiConnection) {
+          const supportsAi = adapterSupportsAiConnections(adapterType);
+          const aiBinding = aiConnectionBindingSchema.safeParse(existing.runtimeConfig.aiConnection).data;
+          const isCompatible = Boolean(
+            supportsAi &&
+            aiBinding &&
+            isAiConnectionCompatible(
+              aiBinding,
+              adapterType,
+              (patch.adapterConfig as Record<string, unknown> | undefined)?.model,
+              (patch.adapterConfig as Record<string, unknown> | undefined)?.provider,
+              (patch.adapterConfig as Record<string, unknown> | undefined)?.acpxAgent,
+            ),
+          );
+          if (!supportsAi || !isCompatible) {
+            const nextRc = { ...existing.runtimeConfig };
+            delete nextRc.aiConnection;
+            patch.runtimeConfig = nextRc;
+          }
         }
       }
       if (!existingPendingApproval && resolvedInput.budgetMonthlyCents !== undefined) {
