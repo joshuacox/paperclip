@@ -471,6 +471,21 @@ export async function migrateLegacySkills(
           }
         }
       }
+    } else {
+      // Unmarked skill in shared legacy root: copy into the agent's skillsHome
+      // so it remains available to this agent, while preserving the original
+      // in legacySkillsHome so other companies/agents can also access it.
+      try {
+        if (entry.isSymbolicLink()) {
+          const linkTarget = await fs.readlink(src);
+          await linkSkillDirectory(linkTarget, dest);
+        } else {
+          await fs.cp(src, dest, { recursive: true });
+        }
+        migrated.push(entry.name);
+      } catch {
+        // best-effort
+      }
     }
   }
 
