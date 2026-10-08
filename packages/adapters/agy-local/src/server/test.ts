@@ -147,8 +147,16 @@ export async function testEnvironment(
     }
     if (sandbox) args.push("--sandbox");
     if (agentPersona) args.push("--agent", agentPersona);
-    if (model) args.push("--model", model);
-    if (effort && !modelHasEffortSuffix(model)) args.push("--effort", effort);
+    let effectiveModel = model;
+    let effectiveEffort: string | null = effort || null;
+    if (effort) {
+      if (modelHasEffortSuffix(model)) {
+        effectiveModel = model.replace(/-(?:low|medium|high)$/i, `-${effort}`);
+        effectiveEffort = null;
+      }
+    }
+    if (effectiveModel) args.push("--model", effectiveModel);
+    if (effectiveEffort) args.push("--effort", effectiveEffort);
     if (mode) args.push("--mode", mode);
     if (dangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
     if (extraArgs.length > 0) args.push(...extraArgs);

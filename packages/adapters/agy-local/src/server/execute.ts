@@ -458,11 +458,19 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (agentPersona) {
       args.push("--agent", agentPersona);
     }
-    if (model) {
-      args.push("--model", model);
+    let effectiveModel = model;
+    let effectiveEffort: string | null = effort || null;
+    if (effort) {
+      if (modelHasEffortSuffix(model)) {
+        effectiveModel = model.replace(/-(?:low|medium|high)$/i, `-${effort}`);
+        effectiveEffort = null;
+      }
     }
-    if (effort && !modelHasEffortSuffix(model)) {
-      args.push("--effort", effort);
+    if (effectiveModel) {
+      args.push("--model", effectiveModel);
+    }
+    if (effectiveEffort) {
+      args.push("--effort", effectiveEffort);
     }
     if (mode) {
       args.push("--mode", mode);

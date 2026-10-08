@@ -243,6 +243,26 @@ describe("agy-local testEnvironment", () => {
     expect(args).not.toContain("--effort");
   });
 
+  it("updates suffixed model to match effort override without passing conflicting --effort in testEnvironment", async () => {
+    const ctx: AdapterEnvironmentTestContext = {
+      companyId: "company-1",
+      adapterType: "agy_local",
+      config: {
+        model: "gemini-3.8-flash-high",
+        effort: "low",
+      },
+    };
+
+    const result = await testEnvironment(ctx);
+    expect(result.status).toBe("pass");
+
+    expect(capturedRuns).toHaveLength(1);
+    const args = capturedRuns[0].args;
+    expect(args).toContain("--model");
+    expect(args[args.indexOf("--model") + 1]).toBe("gemini-3.8-flash-low");
+    expect(args).not.toContain("--effort");
+  });
+
   it("records a warning if probe times out", async () => {
     probeResult.value = {
       exitCode: 1,

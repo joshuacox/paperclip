@@ -87,7 +87,7 @@ describe("agy-local execute", () => {
     expect(commandArgs).toContain("--dangerously-skip-permissions");
   });
 
-  it("omits --effort when model already contains an effort suffix", async () => {
+  it("omits --effort when model already contains an effort suffix matching requested effort", async () => {
     let capturedMeta: AdapterInvocationMeta | null = null;
 
     const ctx: AdapterExecutionContext = {
@@ -127,6 +127,49 @@ describe("agy-local execute", () => {
     const commandArgs = capturedMeta!.commandArgs as string[];
     expect(commandArgs).toContain("--model");
     expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("gemini-3.8-flash-high");
+    expect(commandArgs).not.toContain("--effort");
+  });
+
+  it("updates suffixed model to match effort override without passing conflicting --effort", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-model-effort-override",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Test Agent",
+        adapterType: "agy_local",
+        adapterConfig: {
+          model: "gemini-3.8-flash-high",
+          effort: "low",
+        },
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: "/tmp/workspace",
+        },
+      },
+      onLog: async () => {},
+      onMeta: async (meta) => {
+        capturedMeta = meta;
+      },
+    };
+
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+
+    expect(capturedMeta).not.toBeNull();
+    const commandArgs = capturedMeta!.commandArgs as string[];
+    expect(commandArgs).toContain("--model");
+    expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("gemini-3.8-flash-low");
     expect(commandArgs).not.toContain("--effort");
   });
 
