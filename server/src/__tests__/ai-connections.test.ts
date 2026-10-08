@@ -793,18 +793,27 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
       apiKey: "fixture", allAgents: true, agentIds: [],
     }, "google-migration-key");
     const migration = await readFile(new URL("../../../packages/db/src/migrations/0306_familiar_titania.sql", import.meta.url), "utf8");
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await db.transaction(async (tx) => {
+          for (const statement of migration.split("--> statement-breakpoint")) {
+            if (statement.trim()) await tx.execute(sql.raw(statement));
+          }
+        });
+      }
+      const selected = await service.select({
+        companyId, agentId, userId: "bob", adapterType: "gemini_local",
+        binding: { provider: "google", method: "api_key", mode: "responsible_user" },
+      });
+      expect(selected.grant.id).toBe(saved.grantId);
+    } finally {
+      const restoreMigration = await readFile(new URL("../../../packages/db/src/migrations/0318_robust_mister_sinister.sql", import.meta.url), "utf8");
       await db.transaction(async (tx) => {
-        for (const statement of migration.split("--> statement-breakpoint")) {
+        for (const statement of restoreMigration.split("--> statement-breakpoint")) {
           if (statement.trim()) await tx.execute(sql.raw(statement));
         }
       });
     }
-    const selected = await service.select({
-      companyId, agentId, userId: "bob", adapterType: "gemini_local",
-      binding: { provider: "google", method: "api_key", mode: "responsible_user" },
-    });
-    expect(selected.grant.id).toBe(saved.grantId);
   });
 
   it.each([false, true])("reports the authoritative connection-manager capability for custom grants (manager: %s)", async (manager) => {
