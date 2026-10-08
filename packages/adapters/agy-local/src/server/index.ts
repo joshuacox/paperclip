@@ -38,7 +38,15 @@ export {
   type AgyCredentialReadiness,
   type AgyCredentialReadinessInput,
 } from "./credentials.js";
-
+export {
+  resolveAgyMcpConfigPath,
+  resolveUniqueMcpServerName,
+  writePaperclipAgyMcpConfig,
+  type AgyMcpServerConfig,
+  type AgyMcpConfigFile,
+  type WriteAgyMcpConfigInput,
+  type WriteAgyMcpConfigResult,
+} from "./mcp.js";
 
 export const sessionCodec: AdapterSessionCodec = {
   deserialize(raw) {
@@ -57,6 +65,7 @@ export const sessionCodec: AdapterSessionCodec = {
     const workspaceId = asString(obj.workspaceId, "") || asString(obj.workspace_id, "");
     const repoUrl = asString(obj.repoUrl, "") || asString(obj.repo_url, "");
     const repoRef = asString(obj.repoRef, "") || asString(obj.repo_ref, "");
+    const mcpServerIdentity = asString(obj.mcpServerIdentity, "");
     const remoteExecution =
       typeof obj.remoteExecution === "object" && obj.remoteExecution !== null && !Array.isArray(obj.remoteExecution)
         ? { ...(obj.remoteExecution as Record<string, unknown>) }
@@ -67,6 +76,7 @@ export const sessionCodec: AdapterSessionCodec = {
       ...(workspaceId ? { workspaceId } : {}),
       ...(repoUrl ? { repoUrl } : {}),
       ...(repoRef ? { repoRef } : {}),
+      ...(mcpServerIdentity ? { mcpServerIdentity } : {}),
       ...(remoteExecution ? { remoteExecution } : {}),
     };
   },
@@ -82,6 +92,7 @@ export const sessionCodec: AdapterSessionCodec = {
     const workspaceId = asString(params.workspaceId, "") || asString(params.workspace_id, "");
     const repoUrl = asString(params.repoUrl, "") || asString(params.repo_url, "");
     const repoRef = asString(params.repoRef, "") || asString(params.repo_ref, "");
+    const mcpServerIdentity = asString(params.mcpServerIdentity, "");
     const remoteExecution =
       typeof params.remoteExecution === "object" &&
       params.remoteExecution !== null &&
@@ -94,6 +105,7 @@ export const sessionCodec: AdapterSessionCodec = {
       ...(workspaceId ? { workspaceId } : {}),
       ...(repoUrl ? { repoUrl } : {}),
       ...(repoRef ? { repoRef } : {}),
+      ...(mcpServerIdentity ? { mcpServerIdentity } : {}),
       ...(remoteExecution ? { remoteExecution } : {}),
     };
   },
