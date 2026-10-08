@@ -439,7 +439,7 @@ describeEmbeddedPostgres("built-in agents", () => {
     });
   });
 
-  it("allows provisioning summarizer with agy_local defaulting to low-effort model and dangerouslySkipPermissions", async () => {
+  it("allows provisioning summarizer with agy_local defaulting to low-effort model and dangerouslySkipPermissions false", async () => {
     const companyId = await seedCompany();
 
     const state = await builtInAgentService(db).ensure(companyId, "summarizer", {
@@ -450,15 +450,15 @@ describeEmbeddedPostgres("built-in agents", () => {
     expect(state.agent?.adapterType).toBe("agy_local");
     expect(state.agent?.adapterConfig).toMatchObject({
       model: DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL,
-      dangerouslySkipPermissions: true,
+      dangerouslySkipPermissions: false,
     });
 
-    const stateExplicitFalse = await builtInAgentService(db).ensure(companyId, "summarizer", {
+    const stateExplicitTrue = await builtInAgentService(db).ensure(companyId, "summarizer", {
       adapterType: "agy_local",
-      adapterConfig: { dangerouslySkipPermissions: false },
+      adapterConfig: { dangerouslySkipPermissions: true },
     });
-    expect(stateExplicitFalse.agent?.adapterConfig).toMatchObject({
-      dangerouslySkipPermissions: false,
+    expect(stateExplicitTrue.agent?.adapterConfig).toMatchObject({
+      dangerouslySkipPermissions: true,
     });
   });
 

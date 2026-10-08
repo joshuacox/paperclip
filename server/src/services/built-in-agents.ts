@@ -735,12 +735,12 @@ function defaultAdapterConfigFor(definition: BuiltInAgentDefinition, adapterType
       return {
         ...base,
         model: DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL,
-        dangerouslySkipPermissions: true,
+        dangerouslySkipPermissions: false,
       };
     }
     return {
       ...base,
-      dangerouslySkipPermissions: true,
+      dangerouslySkipPermissions: false,
     };
   }
   return definition.defaultAdapterConfig ?? {};
