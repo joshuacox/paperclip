@@ -28,26 +28,18 @@ export function resolveAgyModelEffort(
 
   if (modelHasEffortSuffix(trimmedModel)) {
     const candidateModel = trimmedModel.replace(/-(?:low|medium|high)$/i, `-${trimmedEffort}`);
-    const candidateInCatalog = models.some((m) => m.id.toLowerCase() === candidateModel.toLowerCase());
-    if (candidateInCatalog) {
+    if (models.some((m) => m.id.toLowerCase() === candidateModel.toLowerCase())) {
       return { model: candidateModel, effort: null, warning: null };
     }
-
-    const modelInCatalog = models.some((m) => m.id.toLowerCase() === trimmedModel.toLowerCase());
-    if (modelInCatalog) {
-      // Model is in the static catalog, but that catalog does not offer the requested variant
-      // (e.g. gpt-oss-120b-medium or gemini-3.1-pro-medium).
-      const currentSuffixMatch = trimmedModel.match(/-(low|medium|high)$/i);
-      const currentEffort = currentSuffixMatch ? currentSuffixMatch[1].toLowerCase() : null;
-      const warning =
-        currentEffort && currentEffort === trimmedEffort
-          ? null
-          : `Model "${trimmedModel}" does not have a "${trimmedEffort}" variant; running with "${trimmedModel}".`;
-      return { model: trimmedModel, effort: null, warning };
-    }
-
-    // Model is outside the static catalog: honor the explicit effort override by rewriting the suffix.
-    return { model: candidateModel, effort: null, warning: null };
+    const currentSuffixMatch = trimmedModel.match(/-(low|medium|high)$/i);
+    const currentEffort = currentSuffixMatch ? currentSuffixMatch[1].toLowerCase() : null;
+    const warning =
+      currentEffort && currentEffort === trimmedEffort
+        ? null
+        : `Model "${trimmedModel}" does not have a "${trimmedEffort}" variant; running with "${trimmedModel}".`;
+    // Resulting model would be unverified or invalid (e.g. gpt-oss-120b-high or uncataloged models).
+    // Preserve the original model and omit --effort to avoid conflicting CLI arguments or invalid model IDs.
+    return { model: trimmedModel, effort: null, warning };
   }
 
   return { model: trimmedModel, effort: trimmedEffort, warning: null };

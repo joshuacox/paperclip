@@ -222,8 +222,9 @@ describe("agy-local execute", () => {
     expect(logs.join("")).toContain('Warning: Model "gpt-oss-120b-medium" does not have a "high" variant; running with "gpt-oss-120b-medium".');
   });
 
-  it("rewrites custom effort-suffixed models outside the catalog when requested effort differs", async () => {
+  it("preserves uncataloged effort-suffixed models and emits a warning when requested effort variant is not recognized", async () => {
     let capturedMeta: AdapterInvocationMeta | null = null;
+    const logs: string[] = [];
 
     const ctx: AdapterExecutionContext = {
       runId: "run-model-custom-effort-override",
@@ -249,7 +250,9 @@ describe("agy-local execute", () => {
           cwd: "/tmp/workspace",
         },
       },
-      onLog: async () => {},
+      onLog: async (_stream, text) => {
+        logs.push(text);
+      },
       onMeta: async (meta) => {
         capturedMeta = meta;
       },
@@ -257,13 +260,14 @@ describe("agy-local execute", () => {
 
     const result = await execute(ctx);
     expect(result.exitCode).toBe(0);
-    expect(result.model).toBe("custom-preview-model-low");
+    expect(result.model).toBe("custom-preview-model-high");
 
     expect(capturedMeta).not.toBeNull();
     const commandArgs = capturedMeta!.commandArgs as string[];
     expect(commandArgs).toContain("--model");
-    expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("custom-preview-model-low");
+    expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("custom-preview-model-high");
     expect(commandArgs).not.toContain("--effort");
+    expect(logs.join("")).toContain('Warning: Model "custom-preview-model-high" does not have a "low" variant; running with "custom-preview-model-high".');
   });
 
   it("passes --conversation when resuming a previous session", async () => {
