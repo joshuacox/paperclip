@@ -212,6 +212,7 @@ describe("agy-local execute", () => {
 
     const result = await execute(ctx);
     expect(result.exitCode).toBe(0);
+    expect(result.model).toBe("gpt-oss-120b-medium");
 
     expect(capturedMeta).not.toBeNull();
     const commandArgs = capturedMeta!.commandArgs as string[];
@@ -219,6 +220,50 @@ describe("agy-local execute", () => {
     expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("gpt-oss-120b-medium");
     expect(commandArgs).not.toContain("--effort");
     expect(logs.join("")).toContain('Warning: Model "gpt-oss-120b-medium" does not have a "high" variant; running with "gpt-oss-120b-medium".');
+  });
+
+  it("rewrites custom effort-suffixed models outside the catalog when requested effort differs", async () => {
+    let capturedMeta: AdapterInvocationMeta | null = null;
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-model-custom-effort-override",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Test Agent",
+        adapterType: "agy_local",
+        adapterConfig: {
+          model: "custom-preview-model-high",
+          effort: "low",
+        },
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: "/tmp/workspace",
+        },
+      },
+      onLog: async () => {},
+      onMeta: async (meta) => {
+        capturedMeta = meta;
+      },
+    };
+
+    const result = await execute(ctx);
+    expect(result.exitCode).toBe(0);
+    expect(result.model).toBe("custom-preview-model-low");
+
+    expect(capturedMeta).not.toBeNull();
+    const commandArgs = capturedMeta!.commandArgs as string[];
+    expect(commandArgs).toContain("--model");
+    expect(commandArgs[commandArgs.indexOf("--model") + 1]).toBe("custom-preview-model-low");
+    expect(commandArgs).not.toContain("--effort");
   });
 
   it("passes --conversation when resuming a previous session", async () => {
