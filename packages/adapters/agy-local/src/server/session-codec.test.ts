@@ -83,6 +83,22 @@ describe("agy-local sessionCodec", () => {
     expect(serialized).toEqual(parsed);
   });
 
+  it("preserves mcpServerIdentity in session params", () => {
+    const parsed = sessionCodec.deserialize({
+      sessionId: "conv-mcp-1",
+      cwd: "/tmp/workspace",
+      mcpServerIdentity: '[{"name":"Paperclip connections","url":"http://localhost:3100/mcp"}]',
+    });
+    expect(parsed).toEqual({
+      sessionId: "conv-mcp-1",
+      cwd: "/tmp/workspace",
+      mcpServerIdentity: '[{"name":"Paperclip connections","url":"http://localhost:3100/mcp"}]',
+    });
+
+    const serialized = sessionCodec.serialize(parsed);
+    expect(serialized).toEqual(parsed);
+  });
+
   it("returns null for empty or invalid params", () => {
     expect(sessionCodec.deserialize(null)).toBeNull();
     expect(sessionCodec.deserialize({})).toBeNull();

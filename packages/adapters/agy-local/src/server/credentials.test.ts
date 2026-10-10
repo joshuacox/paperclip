@@ -8,6 +8,8 @@ import {
   resolveAgyOAuthTokenPath,
   parseAgyOAuthToken,
   ensureAgyApiKeySettings,
+  stageAgyHomeForSync,
+  copyBackAgyAuth,
 } from "./credentials.js";
 
 describe("evaluateAgyCredentialReadiness", () => {
@@ -241,5 +243,173 @@ describe("decideAgyAuthMerge", () => {
     const { decideAgyAuthMerge } = await import("./credentials.js");
     const decision = await decideAgyAuthMerge(source, dest);
     expect(decision).toBe(20);
+  });
+});
+
+describe("stageAgyHomeForSync", () => {
+  const tmpDirs: string[] = [];
+
+  function makeTmpDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-stage-test-"));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of tmpDirs) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    tmpDirs.length = 0;
+  });
+
+  it("stages OAuth token when present on host", async () => {
+    const fakeHome = makeTmpDir();
+    const tokenDir = path.join(fakeHome, ".gemini", "antigravity-cli");
+    fs.mkdirSync(tokenDir, { recursive: true });
+    const tokenFile = path.join(tokenDir, "antigravity-oauth-token");
+    const tokenPayload = { token: "oauth-test-token", access_token: "ya29.test" };
+    fs.writeFileSync(tokenFile, JSON.stringify(tokenPayload));
+
+    const staged = await stageAgyHomeForSync({ homedir: fakeHome });
+    tmpDirs.push(staged);
+
+    const stagedToken = path.join(staged, "antigravity-oauth-token");
+    expect(fs.existsSync(stagedToken)).toBe(true);
+    const content = JSON.parse(fs.readFileSync(stagedToken, "utf8"));
+    expect(content.access_token).toBe("ya29.test");
+  });
+
+  it("stages settings.json with modelProvider: gemini when API key is in env and settings.json is missing", async () => {
+    const fakeHome = makeTmpDir();
+    const staged = await stageAgyHomeForSync({
+      homedir: fakeHome,
+      env: { GEMINI_API_KEY: "test-gemini-key" } as NodeJS.ProcessEnv,
+    });
+    tmpDirs.push(staged);
+
+    const stagedSettings = path.join(staged, "settings.json");
+    expect(fs.existsSync(stagedSettings)).toBe(true);
+    const content = JSON.parse(fs.readFileSync(stagedSettings, "utf8"));
+    expect(content.modelProvider).toBe("gemini");
+  });
+
+  it("copies existing settings.json when present", async () => {
+    const fakeHome = makeTmpDir();
+    const dir = path.join(fakeHome, ".gemini", "antigravity-cli");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ customSetting: "abc" }));
+
+    const staged = await stageAgyHomeForSync({ homedir: fakeHome });
+    tmpDirs.push(staged);
+
+    const stagedSettings = path.join(staged, "settings.json");
+    expect(fs.existsSync(stagedSettings)).toBe(true);
+    const content = JSON.parse(fs.readFileSync(stagedSettings, "utf8"));
+    expect(content.customSetting).toBe("abc");
+  });
+});
+
+describe("copyBackAgyAuth", () => {
+  const tmpDirs: string[] = [];
+
+  function makeTmpDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-copyback-test-"));
+    tmpDirs.push(dir);
+    return dir;
+  }
+
+  afterEach(() => {
+    for (const dir of tmpDirs) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+    tmpDirs.length = 0;
+  });
+
+  it("copies newer token from sandbox to host (decision 10)", async () => {
+    const dir = makeTmpDir();
+    const hostTokenPath = path.join(dir, "antigravity-oauth-token");
+    const now = Date.now();
+    fs.writeFileSync(
+      hostTokenPath,
+      JSON.stringify({
+        access_token: "old-host-token",
+        expiry: new Date(now + 1000).toISOString(),
+      }),
+    );
+
+    const sandboxToken = Buffer.from(
+      JSON.stringify({
+        access_token: "new-sandbox-token",
+        expiry: new Date(now + 7200000).toISOString(),
+      }),
+    );
+
+    const logs: string[] = [];
+    const outcome = await copyBackAgyAuth({
+      readSandboxAuth: async () => sandboxToken,
+      hostTokenPath,
+      log: (line) => {
+        logs.push(line);
+      },
+    });
+
+    expect(outcome).toBe("copied");
+    const updated = JSON.parse(fs.readFileSync(hostTokenPath, "utf8"));
+    expect(updated.access_token).toBe("new-sandbox-token");
+    expect(logs.some((l) => l.includes("updated host credential"))).toBe(true);
+  });
+
+  it("retains host token when host token is newer (decision 20)", async () => {
+    const dir = makeTmpDir();
+    const hostTokenPath = path.join(dir, "antigravity-oauth-token");
+    const now = Date.now();
+    fs.writeFileSync(
+      hostTokenPath,
+      JSON.stringify({
+        access_token: "newer-host-token",
+        expiry: new Date(now + 7200000).toISOString(),
+      }),
+    );
+
+    const sandboxToken = Buffer.from(
+      JSON.stringify({
+        access_token: "older-sandbox-token",
+        expiry: new Date(now + 1000).toISOString(),
+      }),
+    );
+
+    const logs: string[] = [];
+    const outcome = await copyBackAgyAuth({
+      readSandboxAuth: async () => sandboxToken,
+      hostTokenPath,
+      log: (line) => {
+        logs.push(line);
+      },
+    });
+
+    expect(outcome).toBe("kept-host");
+    const retained = JSON.parse(fs.readFileSync(hostTokenPath, "utf8"));
+    expect(retained.access_token).toBe("newer-host-token");
+    expect(logs.some((l) => l.includes("host credential is newer or equivalent"))).toBe(true);
+  });
+
+  it("is a benign no-op returning kept-host when sandbox token does not exist (ENOENT)", async () => {
+    const dir = makeTmpDir();
+    const hostTokenPath = path.join(dir, "antigravity-oauth-token");
+    fs.writeFileSync(hostTokenPath, JSON.stringify({ access_token: "host-token" }));
+
+    const outcome = await copyBackAgyAuth({
+      readSandboxAuth: async () => {
+        const err = new Error("File not found") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        throw err;
+      },
+      hostTokenPath,
+      log: () => {},
+    });
+
+    expect(outcome).toBe("kept-host");
+    const retained = JSON.parse(fs.readFileSync(hostTokenPath, "utf8"));
+    expect(retained.access_token).toBe("host-token");
   });
 });
