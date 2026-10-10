@@ -7,6 +7,7 @@ import {
   resolveAgyMcpConfigPath,
   resolveUniqueMcpServerName,
   writePaperclipAgyMcpConfig,
+  stageAgyMcpConfigForSync,
 } from "./mcp.js";
 
 describe("resolveAgyMcpConfigPath", () => {
@@ -158,6 +159,83 @@ describe("writePaperclipAgyMcpConfig", () => {
       expect(afterCleanup.otherSettings).toEqual({ enabled: true });
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  });
+});
+
+describe("stageAgyMcpConfigForSync", () => {
+  it("stages Paperclip MCP servers into a private directory with mcp_config.json", async () => {
+    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "agy-mcp-home-"));
+    const servers: AdapterRuntimeMcpServer[] = [
+      {
+        name: "Paperclip connections",
+        url: "https://api.paperclip.test/mcp/connections",
+        token: "tok-123",
+        connectionId: "conn-1",
+      },
+    ];
+
+    const stagedDir = await stageAgyMcpConfigForSync({
+      homedir: tempHome,
+      servers,
+      runId: "run-mcp-sync-1",
+    });
+
+    try {
+      const stagedConfigPath = path.join(stagedDir, "mcp_config.json");
+      const exists = await fs.stat(stagedConfigPath).then(() => true).catch(() => false);
+      expect(exists).toBe(true);
+
+      const content = JSON.parse(await fs.readFile(stagedConfigPath, "utf8"));
+      expect(content.mcpServers["Paperclip connections"]).toEqual({
+        url: "https://api.paperclip.test/mcp/connections",
+        headers: { Authorization: "Bearer tok-123" },
+      });
+    } finally {
+      await Promise.all([
+        fs.rm(tempHome, { recursive: true, force: true }).catch(() => undefined),
+        fs.rm(stagedDir, { recursive: true, force: true }).catch(() => undefined),
+      ]);
+    }
+  });
+
+  it("merges existing host MCP servers when staging for sync", async () => {
+    const tempHome = await fs.mkdtemp(path.join(os.tmpdir(), "agy-mcp-home-"));
+    const configDir = path.join(tempHome, ".gemini", "config");
+    await fs.mkdir(configDir, { recursive: true });
+    await fs.writeFile(
+      path.join(configDir, "mcp_config.json"),
+      JSON.stringify({
+        mcpServers: {
+          existing_tool: { url: "https://existing.tool/mcp" },
+        },
+      }),
+    );
+
+    const servers: AdapterRuntimeMcpServer[] = [
+      {
+        name: "paperclip_tool",
+        url: "https://api.paperclip.test/mcp/tool",
+        token: "",
+        connectionId: "conn-2",
+      },
+    ];
+
+    const stagedDir = await stageAgyMcpConfigForSync({
+      homedir: tempHome,
+      servers,
+      runId: "run-mcp-sync-2",
+    });
+
+    try {
+      const content = JSON.parse(await fs.readFile(path.join(stagedDir, "mcp_config.json"), "utf8"));
+      expect(content.mcpServers.existing_tool).toEqual({ url: "https://existing.tool/mcp" });
+      expect(content.mcpServers.paperclip_tool).toEqual({ url: "https://api.paperclip.test/mcp/tool" });
+    } finally {
+      await Promise.all([
+        fs.rm(tempHome, { recursive: true, force: true }).catch(() => undefined),
+        fs.rm(stagedDir, { recursive: true, force: true }).catch(() => undefined),
+      ]);
     }
   });
 });

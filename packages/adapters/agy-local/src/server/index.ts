@@ -47,10 +47,12 @@ export {
   resolveAgyMcpConfigPath,
   resolveUniqueMcpServerName,
   writePaperclipAgyMcpConfig,
+  stageAgyMcpConfigForSync,
   type AgyMcpServerConfig,
   type AgyMcpConfigFile,
   type WriteAgyMcpConfigInput,
   type WriteAgyMcpConfigResult,
+  type StageAgyMcpConfigInput,
 } from "./mcp.js";
 export { SANDBOX_INSTALL_COMMAND, ADAPTER_AUTH_MISSING_CHECK_CODE } from "../index.js";
 

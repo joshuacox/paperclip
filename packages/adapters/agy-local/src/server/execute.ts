@@ -72,7 +72,7 @@ import {
   resolveAgyOAuthTokenPath,
   stageAgyHomeForSync,
 } from "./credentials.js";
-import { writePaperclipAgyMcpConfig } from "./mcp.js";
+import { stageAgyMcpConfigForSync, writePaperclipAgyMcpConfig } from "./mcp.js";
 import {
   DEFAULT_AGY_LOCAL_MODEL,
   resolveAgyModelEffort,
@@ -324,7 +324,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   let remoteRuntimeRootDir: string | null = null;
   let remoteSkillsDir: string | null = null;
   let stagedAgyHomeDir: string | null = null;
+  let stagedMcpConfigDir: string | null = null;
   let paperclipBridge: Awaited<ReturnType<typeof startAdapterExecutionTargetPaperclipBridge>> = null;
+
+  const runtimeMcpServers = ctx.runtimeMcp?.getServers() ?? [];
+  const runtimeMcpIdentity = JSON.stringify(
+    runtimeMcpServers.map(({ name, url, connectionId }) => ({ name, url, connectionId })),
+  );
 
   if (executionTargetIsRemote) {
     try {
@@ -336,6 +342,15 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         env: runtimeEnv,
         runId,
       });
+
+      if (runtimeMcpServers.length > 0) {
+        stagedMcpConfigDir = await stageAgyMcpConfigForSync({
+          servers: runtimeMcpServers,
+          runId,
+          homedir: runtimeEnv.HOME || os.homedir(),
+          env: runtimeEnv,
+        });
+      }
 
       await onLog(
         "stdout",
@@ -376,6 +391,15 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
               });
             },
           },
+          ...(stagedMcpConfigDir
+            ? [
+                {
+                  key: "mcp-config",
+                  localDir: stagedMcpConfigDir,
+                  followSymlinks: true,
+                },
+              ]
+            : []),
         ],
       });
 
@@ -431,6 +455,22 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         env.GEMINI_CLI_HOME = targetAgyHome;
       }
 
+      if (remoteHomeDir && preparedExecutionTargetRuntime.assetDirs["mcp-config"]) {
+        const stagedMcpConfigRemote = preparedExecutionTargetRuntime.assetDirs["mcp-config"];
+        const targetMcpConfig = path.posix.join(remoteHomeDir, ".gemini", "config", "mcp_config.json");
+        const stagedMcpFile = path.posix.join(stagedMcpConfigRemote, "mcp_config.json");
+        await runAdapterExecutionTargetShellCommand(
+          runId,
+          executionTarget,
+          `mkdir -p ${JSON.stringify(path.posix.dirname(targetMcpConfig))} && rm -f ${JSON.stringify(targetMcpConfig)} && (ln -s ${JSON.stringify(stagedMcpFile)} ${JSON.stringify(targetMcpConfig)} || cp -a ${JSON.stringify(stagedMcpFile)} ${JSON.stringify(targetMcpConfig)})`,
+          { cwd: effectiveExecutionCwd, env, timeoutSec, graceSec, onLog },
+        );
+        await onLog(
+          "stdout",
+          `[paperclip] Configured ${runtimeMcpServers.length} Paperclip-managed MCP server(s) in remote ${targetMcpConfig}.\n`,
+        );
+      }
+
       Object.assign(runtimeEnv, {
         ...(env.HOME ? { HOME: env.HOME } : {}),
         ...(env.ANTIGRAVITY_CLI_HOME ? { ANTIGRAVITY_CLI_HOME: env.ANTIGRAVITY_CLI_HOME } : {}),
@@ -440,6 +480,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       await Promise.allSettled([
         restoreRemoteWorkspace?.(),
         stagedAgyHomeDir ? fs.rm(stagedAgyHomeDir, { recursive: true, force: true }).catch(() => undefined) : Promise.resolve(),
+        stagedMcpConfigDir ? fs.rm(stagedMcpConfigDir, { recursive: true, force: true }).catch(() => undefined) : Promise.resolve(),
       ]);
       throw error;
     }
@@ -862,11 +903,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     await onLog("stdout", `[paperclip] Warning: ${resolvedModelEffort.warning}\n`);
   }
 
-  const runtimeMcpServers = ctx.runtimeMcp?.getServers() ?? [];
-  const runtimeMcpIdentity = JSON.stringify(
-    runtimeMcpServers.map(({ name, url, connectionId }) => ({ name, url, connectionId })),
-  );
-
   let mcpCleanup: (() => Promise<void>) | null = null;
   if (runtimeMcpServers.length > 0 && !executionTargetIsRemote) {
     try {
@@ -951,6 +987,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     } catch {}
     if (stagedAgyHomeDir) {
       await fs.rm(stagedAgyHomeDir, { recursive: true, force: true }).catch(() => {});
+    }
+    if (stagedMcpConfigDir) {
+      await fs.rm(stagedMcpConfigDir, { recursive: true, force: true }).catch(() => {});
     }
   }
 }

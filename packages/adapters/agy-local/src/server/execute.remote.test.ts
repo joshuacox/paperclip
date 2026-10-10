@@ -140,6 +140,9 @@ describe("agy-local execute (remote execution)", () => {
       assetDirs: {
         skills: "/remote/runtime/assets/skills",
         "agy-home": "/remote/runtime/assets/agy-home",
+        ...(input.assets?.some((a: any) => a.key === "mcp-config")
+          ? { "mcp-config": "/remote/runtime/assets/mcp-config" }
+          : {}),
       },
       restoreWorkspace: async () => {
         await restoreWorkspaceSpy();
@@ -444,5 +447,72 @@ describe("agy-local execute (remote execution)", () => {
 
     expect(capturedProcessRuns).toHaveLength(1);
     expect(capturedProcessRuns[0].args).not.toContain("conv-mismatched-1");
+  });
+
+  it("stages mcp-config asset and links mcp_config.json in sandbox when runtime MCP servers are present", async () => {
+    const rootDir = await makeTmpDir();
+    const workspaceDir = path.join(rootDir, "workspace");
+    await fs.mkdir(workspaceDir, { recursive: true });
+
+    const ctx: AdapterExecutionContext = {
+      runId: "run-remote-mcp",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Remote Agent",
+        adapterType: "agy_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      runtimeMcp: {
+        getServers: () => [
+          {
+            name: "Paperclip tools",
+            url: "https://api.paperclip.test/mcp/tools",
+            token: "tool-token",
+            connectionId: "conn-mcp-1",
+          },
+        ],
+      },
+      config: {},
+      context: {
+        paperclipWorkspace: {
+          cwd: workspaceDir,
+        },
+      },
+      executionTarget: makeSandboxTarget(),
+      onLog: async () => {},
+    };
+
+    const result = await execute(ctx);
+
+    // Runtime was prepared with mcp-config asset
+    expect(prepareAdapterExecutionTargetRuntime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        assets: expect.arrayContaining([
+          expect.objectContaining({ key: "mcp-config" }),
+        ]),
+      }),
+    );
+
+    // Shell command materialized mcp_config.json in sandbox config dir
+    expect(runAdapterExecutionTargetShellCommand).toHaveBeenCalledWith(
+      "run-remote-mcp",
+      expect.objectContaining({ kind: "remote" }),
+      expect.stringContaining(".gemini/config/mcp_config.json"),
+      expect.anything(),
+    );
+
+    // Session params preserve mcpServerIdentity
+    expect(result.sessionParams).toEqual(
+      expect.objectContaining({
+        mcpServerIdentity: expect.stringContaining("Paperclip tools"),
+      }),
+    );
   });
 });
