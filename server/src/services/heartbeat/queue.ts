@@ -1390,9 +1390,9 @@ export function createHeartbeatQueue(db: Db, dependencies: HeartbeatQueueDepende
               // the same way getQueuedCommentLiveness does; a malformed id
               // is simply never live, so the discard gate below still sees
               // it. The raw list above keeps deciding envelope presence.
-              const queryableIds = authoritativeIds.filter((commentId) =>
-                isUuidLike(commentId),
-              );
+              const queryableIds = authoritativeIds
+                .map((commentId) => commentId.trim())
+                .filter((commentId) => isUuidLike(commentId));
               const commentRows =
                 queryableIds.length === 0
                   ? []

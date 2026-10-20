@@ -122,6 +122,7 @@ function buildTransaction(tx: Db, companyId: string, deps: QueuedCommentQueuePos
       // cannot fail the snapshot; the row lookup below already treats a
       // missing id as no such comment.
       const commentIds = queuedCommentIdsFromWakePayload(wake?.payload ?? null)
+        .map((commentId) => commentId.trim())
         .filter((commentId) => isUuidLike(commentId));
       const rows =
         commentIds.length > 0

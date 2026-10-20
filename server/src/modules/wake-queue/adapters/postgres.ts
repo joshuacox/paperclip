@@ -421,7 +421,9 @@ function buildTransaction(tx: Db, deps: WakeQueuePostgresAdapterDeps, db: Db, ru
       // row, but Postgres rejects the whole `inArray` statement on it. The
       // length comparison below still counts it, so it keeps failing the
       // check exactly like a missing comment does, just without throwing.
-      const queryableCommentIds = uniqueCommentIds.filter((commentId) => isUuidLike(commentId));
+      const queryableCommentIds = uniqueCommentIds
+        .map((commentId) => commentId.trim())
+        .filter((commentId) => isUuidLike(commentId));
       const comments = queryableCommentIds.length === 0 ? [] : await tx.select({ body: issueComments.body, createdByRunId: issueComments.createdByRunId,
         authorAgentId: issueComments.authorAgentId })
         .from(issueComments).where(and(
