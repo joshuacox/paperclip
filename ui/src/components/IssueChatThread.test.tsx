@@ -530,6 +530,54 @@ describe("IssueChatThread", () => {
     act(() => root.unmount());
   });
 
+  it("does not mount plugin slots for an unsaved queued comment, but keeps them for a saved queued one", () => {
+    const root = createRoot(container);
+    const baseComment = {
+      companyId: "company-1",
+      issueId: "issue-1",
+      presentation: null,
+      metadata: null,
+      createdAt: new Date("2026-07-07T21:13:07.902Z"),
+      updatedAt: new Date("2026-07-07T21:13:07.902Z"),
+    };
+    act(() => {
+      renderIssueThread(root, {
+        showComposer: false,
+        companyId: "company-1",
+        companyPrefix: "PAP",
+        projectId: "project-1",
+        issueId: "issue-1",
+        comments: [
+          {
+            ...baseComment,
+            id: "optimistic-q1",
+            authorAgentId: null,
+            authorUserId: "user-1",
+            authorType: "user",
+            body: "Queued locally behind the active run.",
+            clientStatus: "queued",
+          },
+          {
+            ...baseComment,
+            id: "comment-saved-queued",
+            authorAgentId: null,
+            authorUserId: "user-1",
+            authorType: "user",
+            body: "Saved comment queued for the next run.",
+            queueState: "queued",
+          },
+        ],
+      });
+    });
+
+    const outlets = [...container.querySelectorAll('[data-testid="plugin-slot-outlet"]')];
+    expect(outlets.length).toBeGreaterThan(0);
+    expect(
+      outlets.every((el) => el.getAttribute("data-entity-id") === "comment-saved-queued"),
+    ).toBe(true);
+    act(() => root.unmount());
+  });
+
   it("drops the count heading and does not use an internal scrollbox", () => {
     const root = createRoot(container);
 

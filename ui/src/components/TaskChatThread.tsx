@@ -2699,6 +2699,11 @@ export function TaskChatThread(props: TaskChatThreadProps) {
         !companyId ||
         item.origin !== "comment" ||
         item.optimistic === "pending" ||
+        // A locally queued comment the server has not saved yet carries an
+        // optimistic id (the same marker IssueDetail checks); plugins must
+        // not receive it. A persisted queued comment has a real id and
+        // keeps its slots.
+        (item.optimistic === "queued" && item.id.startsWith("optimistic-")) ||
         item.streaming
       ) {
         return null;
@@ -2712,12 +2717,12 @@ export function TaskChatThread(props: TaskChatThreadProps) {
         parentEntityId: issueId ?? null,
       };
       return (
-        <div className="mt-1 space-y-2">
+        <>
           <PluginSlotOutlet
             slotTypes={["commentContextMenuItem"]}
             entityType="comment"
             context={context}
-            className="flex flex-wrap items-center gap-1.5"
+            className="mt-1 flex flex-wrap items-center gap-1.5"
             itemClassName="inline-flex"
             missingBehavior="placeholder"
           />
@@ -2725,11 +2730,11 @@ export function TaskChatThread(props: TaskChatThreadProps) {
             slotTypes={["commentAnnotation"]}
             entityType="comment"
             context={context}
-            className="space-y-2"
+            className="mt-2 space-y-2"
             itemClassName="rounded-md"
             missingBehavior="placeholder"
           />
-        </div>
+        </>
       );
     },
     [companyId, companyPrefix, projectId, issueId],

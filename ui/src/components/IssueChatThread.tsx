@@ -391,7 +391,7 @@ function CommentPluginSlots({
       slotTypes={["commentAnnotation"]}
       entityType="comment"
       context={context}
-      className="space-y-2"
+      className="mt-2 space-y-2"
       itemClassName="rounded-md"
       missingBehavior="placeholder"
     />
@@ -2078,6 +2078,12 @@ function IssueChatUserMessage({
   const queueBadgeLabel =
     queueReason === "hold" ? "\u23f8 Deferred wake" : "Queued";
   const pending = custom.clientStatus === "pending";
+  // A locally-created comment the server has not saved yet (still sending,
+  // or queued locally behind an active run) carries a clientStatus and an
+  // optimistic id; plugin slots must not mount for it, because plugins
+  // would receive an id the server cannot find. Persisted queued comments
+  // have a queueState but no clientStatus, and keep their slots.
+  const unsavedLocal = pending || custom.clientStatus === "queued";
   const deleted = Boolean(custom.deletedAt);
   const queueTargetRunId =
     typeof custom.queueTargetRunId === "string"
@@ -2288,15 +2294,13 @@ function IssueChatUserMessage({
               <Trash2 className="h-3.5 w-3.5" />
             </button>
           ) : null}
-          {!deleted ? (
+          {!deleted && !unsavedLocal ? (
             <CommentPluginSlots commentId={commentId} variant="menu" />
           ) : null}
         </div>
       )}
-      {!pending && !deleted ? (
-        <div className="mt-2 space-y-2">
-          <CommentPluginSlots commentId={commentId} variant="annotation" />
-        </div>
+      {!unsavedLocal && !deleted ? (
+        <CommentPluginSlots commentId={commentId} variant="annotation" />
       ) : null}
     </div>
   );
@@ -2681,9 +2685,7 @@ function IssueChatAssistantMessage({
           </div>
           {!deleted ? messageActionBar : null}
           {!deleted && commentId ? (
-            <div className="mt-2 space-y-2">
-              <CommentPluginSlots commentId={commentId} variant="annotation" />
-            </div>
+            <CommentPluginSlots commentId={commentId} variant="annotation" />
           ) : null}
         </div>
       </div>
