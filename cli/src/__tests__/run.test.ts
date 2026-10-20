@@ -246,6 +246,52 @@ describe("run inspection commands", () => {
     expect(errSpy.mock.calls[0]?.[0]).toContain("1000 max");
   });
 
+  it("warns when a negative limit makes the server return a single run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([
+      { id: RUN_ID, companyId: COMPANY_ID, agentId: AGENT_ID, status: "succeeded", invocationSource: "on_demand" },
+    ]), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await createProgram().parseAsync([
+      "run", "list",
+      "--api-base", "http://localhost:3100",
+      "--api-key", "board-token",
+      "--company-id", COMPANY_ID,
+      "--limit=-1",
+    ], { from: "user" });
+
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    expect(errSpy.mock.calls[0]?.[0]).toContain("newest 1 runs");
+  });
+
+  it("does not advise raising --limit when the page already hit the server ceiling", async () => {
+    const page = Array.from({ length: 1000 }, (_, i) => ({
+      id: `33333333-3333-4333-8333-${String(i).padStart(12, "0")}`,
+      companyId: COMPANY_ID,
+      agentId: AGENT_ID,
+      status: "succeeded",
+      invocationSource: "on_demand",
+    }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(page), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await createProgram().parseAsync([
+      "run", "list",
+      "--api-base", "http://localhost:3100",
+      "--api-key", "board-token",
+      "--company-id", COMPANY_ID,
+      "--limit", "5000",
+    ], { from: "user" });
+
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    expect(errSpy.mock.calls[0]?.[0]).toContain("newest 1000 runs");
+    expect(errSpy.mock.calls[0]?.[0]).not.toContain("Raise --limit");
+  });
+
   it("stays quiet when run list returns a partial page", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([
       { id: RUN_ID, companyId: COMPANY_ID, agentId: AGENT_ID, status: "running", invocationSource: "on_demand" },

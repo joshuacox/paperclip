@@ -72,14 +72,24 @@ export function registerRunCommands(command: Command): void {
           // instead of silently stopping; stdout stays clean for --json.
           // Real paging needs the offset/headers work in #14958.
           const requestedLimit = opts.limit ? Number.parseInt(opts.limit, 10) : Number.NaN;
-          const effectiveLimit = Number.isFinite(requestedLimit) && requestedLimit > 0
-            ? Math.min(requestedLimit, HEARTBEAT_RUN_LIST_MAX_LIMIT)
-            : HEARTBEAT_RUN_LIST_DEFAULT_LIMIT;
+          // Mirror the route's own clamp exactly: an unparsable or zero
+          // limit falls back to the default, and any other value is
+          // clamped into [1, MAX] (so a negative limit means one run).
+          const effectiveLimit = Math.max(
+            1,
+            Math.min(
+              requestedLimit || HEARTBEAT_RUN_LIST_DEFAULT_LIMIT,
+              HEARTBEAT_RUN_LIST_MAX_LIMIT,
+            ),
+          );
           if (rows.length >= effectiveLimit) {
             console.error(
-              `Showing the newest ${rows.length} runs. The server caps this list at ${effectiveLimit} runs per request `
-              + `(${HEARTBEAT_RUN_LIST_DEFAULT_LIMIT} by default, ${HEARTBEAT_RUN_LIST_MAX_LIMIT} max), so more runs may exist. `
-              + "Raise --limit to see more.",
+              effectiveLimit >= HEARTBEAT_RUN_LIST_MAX_LIMIT
+                ? `Showing the newest ${rows.length} runs. The server caps this list at ${HEARTBEAT_RUN_LIST_MAX_LIMIT} runs per request, `
+                  + "so more runs may exist, but this command cannot page past the cap yet."
+                : `Showing the newest ${rows.length} runs. The server caps this list at ${effectiveLimit} runs per request `
+                  + `(${HEARTBEAT_RUN_LIST_DEFAULT_LIMIT} by default, ${HEARTBEAT_RUN_LIST_MAX_LIMIT} max), so more runs may exist. `
+                  + "Raise --limit to see more.",
             );
           }
         } catch (err) {
