@@ -110,6 +110,29 @@ describe("hermes-local prompt-echo runs (#16443)", () => {
     expect(resultJson?.result ?? "").not.toContain("Summarize the open incident tickets");
   });
 
+  it("ignores a zero-turn footer quoted inside the prompt when the real footer shows a reply", async () => {
+    mockChildResult({
+      exitCode: 0,
+      stdout: [
+        "Query: Why did the earlier run fail? Its transcript ended with:",
+        "Messages: 1 (1 user, 0 tool calls)",
+        "",
+        "That earlier session never got a provider reply, so it recorded zero turns.",
+        "",
+        "Resume this session with: hermes --resume 20260923_210000_ij56kl",
+        "Session: 20260923_210000_ij56kl",
+        "Duration: 4.02s",
+        "Messages: 2 (1 user, 0 tool calls)",
+      ].join("\n"),
+      stderr: "",
+    });
+
+    const result = await execute(makeCtx() as never);
+
+    expect(result.errorCode).toBeUndefined();
+    expect(result.summary ?? "").toContain("never got a provider reply");
+  });
+
   it("keeps a real one-message answer that used no tools", async () => {
     mockChildResult({
       exitCode: 0,

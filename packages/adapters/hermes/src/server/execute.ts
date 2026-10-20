@@ -352,9 +352,14 @@ function parseHermesOutput(stdout: string, stderr: string): ParsedOutput {
   // the prompt echo ("Query: <prompt>") plus CLI chrome, not an agent reply,
   // so drop it and surface the run as a zero-turn failure instead of letting
   // it record as a success whose summary is the prompt itself. See #16443.
-  const footerMatch = combined.match(
-    /Messages:\s*(\d+)\s*\(\s*(\d+)\s+user,\s*(\d+)\s+tool calls?\)/,
-  );
+  // Only the LAST footer-shaped line counts: the prompt echo or the reply
+  // itself can quote an earlier session's footer (an agent debugging this
+  // very failure mode would), and the real footer is the one Hermes prints
+  // at the end of the run.
+  const footerMatches = [
+    ...combined.matchAll(/Messages:\s*(\d+)\s*\(\s*(\d+)\s+user,\s*(\d+)\s+tool calls?\)/g),
+  ];
+  const footerMatch = footerMatches[footerMatches.length - 1];
   if (footerMatch) {
     const totalMessages = parseInt(footerMatch[1], 10);
     const userMessages = parseInt(footerMatch[2], 10);
