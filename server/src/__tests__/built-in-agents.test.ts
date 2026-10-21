@@ -572,6 +572,29 @@ describeEmbeddedPostgres("built-in agents", () => {
     expect(updated.agent?.runtimeConfig.aiConnection).toBeUndefined();
   });
 
+  it("keeps a router-mode AI connection binding when reconfiguring the summarizer", async () => {
+    const companyId = await seedCompany();
+
+    const initial = await builtInAgentService(db).ensure(companyId, "summarizer");
+    expect(initial.agent?.adapterType).toBe("claude_local");
+    const poolId = randomUUID();
+    await db.update(agents).set({
+      runtimeConfig: {
+        aiConnection: { mode: "router", connectionId: poolId },
+      },
+    }).where(eq(agents.id, initial.agent!.id));
+
+    const updated = await builtInAgentService(db).ensure(companyId, "summarizer", {
+      adapterType: "agy_local",
+    });
+
+    expect(updated.agent?.adapterType).toBe("agy_local");
+    expect(updated.agent?.runtimeConfig.aiConnection).toEqual({
+      mode: "router",
+      connectionId: poolId,
+    });
+  });
+
   it("rejects unknown built-in adapter models before saving setup", async () => {
     const companyId = await seedCompany();
 
@@ -1450,8 +1473,8 @@ describeEmbeddedPostgres("built-in agents", () => {
       icon: "sparkles",
       role: "general",
       reportsTo: root.id,
-      adapterType: "claude_local",
-      adapterConfig: { model: "claude-haiku-4-5" },
+      adapterType: "paperclip_runner",
+      adapterConfig: { provider: "acpx", acpxAgent: "claude", model: "claude-haiku-4-5" },
       budgetMonthlyCents: 0,
     });
     expect(state.status).toBe("paused");

@@ -31,6 +31,7 @@ import {
   SemanticToolNotDispatchedError,
   inspectWarmRunTransition,
   spawnRunner,
+  waitForProcess,
   type RunnerProcessLaunchSpec,
 } from "./durable-prp-control-plane.js";
 import type { DurableRecoveryIdentity } from "./prp-transport-types.js";
@@ -393,6 +394,29 @@ it.skipIf(process.platform === "win32")(
   },
 );
 
+it("does not release or replace a remote runner until its exit is confirmed", async () => {
+  let exited = false;
+  const launch = vi.fn(() => ({
+    child: { pid: 42, exitCode: null, kill: () => true },
+    completion: Promise.resolve({ code: null, signal: null, stdout: "", stderr: "health probe unavailable" }),
+    isExitConfirmed: () => exited,
+  }));
+  const handle = spawnRunner({
+    connection: { mode: "connect", connectUrl: "ws://127.0.0.1:43127" },
+    stateDirectory: "/tmp/paperclip-runner-exit-test", identity, ticket: "bootstrap-ticket",
+    maxOutboxBytes: 256 * 1024, p0ReserveBytes: 64 * 1024,
+    runnerVersion: expectedRunnerVersion, runnerDigest: expectedRunnerDigest,
+    processLauncher: launch,
+  });
+  expect(() => handle.restart!("replacement-ticket")).toThrow("runner_process_termination_unconfirmed");
+  await expect(waitForProcess(handle)).rejects.toThrow("runner_process_termination_unconfirmed");
+  expect(launch).toHaveBeenCalledTimes(1);
+  exited = true;
+  await expect(waitForProcess(handle)).resolves.toMatchObject({ code: null });
+  handle.restart!("replacement-ticket");
+  expect(launch).toHaveBeenCalledTimes(2);
+});
+
 it("pins the ACPX launch profile in runner startup arguments and restarts", () => {
   const launches: RunnerProcessLaunchSpec[] = [];
   const handle = spawnRunner({
@@ -630,6 +654,20 @@ it("preserves only bounded GitHub credential projection at the runner spawn boun
   expect(launches[0]!.environment.GIT_CONFIG_KEY_1).toBeUndefined();
   expect(launches[0]!.environment.GIT_CONFIG_VALUE_1).toBeUndefined();
   expect(launches[0]!.environment.DATABASE_URL).toBeUndefined();
+});
+
+it("passes structured inputs to an external owner and preserves its replacement veto", () => {
+  const process = { child: { exitCode: null, signalCode: null, kill: () => true },
+    completion: Promise.resolve({ code: 0, signal: null, stdout: "", stderr: "" }), restart: null };
+  const launcher = vi.fn(() => process);
+  const options = { connection: { mode: "external" as const }, stateDirectory: "/unused", identity,
+    ticket: "synthetic-ticket", maxOutboxBytes: 262144, p0ReserveBytes: 65536,
+    runnerVersion: expectedRunnerVersion, runnerDigest: expectedRunnerDigest,
+    lifecyclePolicy: { mode: "per_turn" as const, idleTimeoutMs: null } };
+  expect(() => spawnRunner(options)).toThrow("requires a process owner");
+  expect(spawnRunner({ ...options, processLauncher: launcher })).toBe(process);
+  expect(launcher).toHaveBeenCalledWith(expect.objectContaining({ nativeRunner: expect.objectContaining(options) }));
+  expect(launcher.mock.calls[0][0].args).not.toContain("--connect-url");
 });
 
 it("preserves the controller-selected ACPX provider package root", () => {
@@ -2963,9 +3001,11 @@ describe("DurablePrpControlPlane", () => {
       const unusedTicket = core.issueBootstrapTicket();
       peer = await authenticateVersion(core, core.issueBootstrapTicket());
       const oldToken = peer!.leaseToken!;
+      core.persistRunAttachTemplate({ provider: { kind: "mock", run: "prior" } });
       const command = core.queueCommand(
         "run.attach",
         {
+          provider: { kind: "mock", run: "next" },
           paperclipNextAuthority: {
             identity: nextIdentity,
             connection: { mode: "connect", connectUrl: core.connectUrl },
@@ -3310,6 +3350,7 @@ describe("DurablePrpControlPlane", () => {
         );
         expect(successor).not.toBeNull();
         expect(core.store.state.identity).toEqual(nextIdentity);
+        expect(core.store.state.runAttachTemplate).toEqual({ provider: { kind: "mock", run: "next" } });
         expect(
           (successor!.welcome.payload as Record<string, unknown>)
             .pendingCommands,

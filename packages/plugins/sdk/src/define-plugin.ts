@@ -1,3 +1,5 @@
+import type { PluginWorkspaceParams, PluginWorkspaceResult } from "./workspace-provider.js";
+import type { PluginEnvironmentTaskParams, PluginEnvironmentTaskResult } from "./environment-tasks.js";
 import type { AgentLifecycleRequest, AgentLifecycleResult } from "@paperclipai/shared";
 import type { AiConnectionRouterRequest, AiConnectionRouterResult } from "@paperclipai/shared";
 /**
@@ -55,6 +57,8 @@ import type { PluginContext, ResourceLifecycleEvent, ResourceLifecycleResult } f
 import type {
   PluginEnvironmentAcquireLeaseParams,
   PluginEnvironmentDestroyLeaseParams,
+  PluginEnvironmentInspectLeaseParams,
+  PluginEnvironmentLeaseObservation,
   PluginEnvironmentExecuteParams,
   PluginEnvironmentExecuteResult,
   PluginEnvironmentRunnerIngressEndpointParams,
@@ -399,6 +403,12 @@ export interface PluginDefinition {
     params: PluginEnvironmentValidateConfigParams,
   ): Promise<PluginEnvironmentValidationResult>;
 
+  /** Required with manifest.workspaceProvider, together with project resource lifecycle. */
+  onWorkspaceOperation?(params: PluginWorkspaceParams): Promise<PluginWorkspaceResult>;
+
+  /** Provide Runner execution: prepare resources, start Runner, connect via PRP, and manage task lifecycle. */
+  onEnvironmentTask?(params: PluginEnvironmentTaskParams): Promise<PluginEnvironmentTaskResult>;
+
   /** Called to test reachability or readiness of a plugin-hosted environment. */
   onEnvironmentProbe?(
     params: PluginEnvironmentProbeParams,
@@ -430,6 +440,11 @@ export interface PluginDefinition {
   onEnvironmentDestroyLease?(
     params: PluginEnvironmentDestroyLeaseParams,
   ): Promise<PluginEnvironmentTerminationReceipt | void>;
+
+  /** Read provider state only. This must not start or reconnect a sandbox. */
+  onEnvironmentInspectLease?(
+    params: PluginEnvironmentInspectLeaseParams,
+  ): Promise<PluginEnvironmentLeaseObservation>;
 
   /** Called to materialize the run workspace inside the provider lease. */
   onEnvironmentRealizeWorkspace?(

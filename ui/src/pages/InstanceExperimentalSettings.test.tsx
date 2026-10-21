@@ -92,7 +92,6 @@ function defaultExperimentalSettings(): InstanceExperimentalSettingsPayload {
     enableChatConnectors: false,
     enableGitHubReviewBots: false,
     enableMemoryConnectors: false,
-    enablePipelines: false,
     enableCases: false,
     enableAgentChat: false,
     enableCombinedInboxTasks: false,
@@ -274,6 +273,17 @@ describe("InstanceExperimentalSettings — Conference Room Chat card (PAP-11233)
     }
   });
 
+  it("saves the personal Muse opt-in separately and names independent readiness evidence", async () => {
+    await renderPage();
+    expect(container.textContent).toContain("Muse — Personal agent");
+    expect(container.textContent).toContain("independent background reply");
+    expect(container.textContent).toContain("Provider usage and cost are unavailable");
+    const toggle = container.querySelector<HTMLButtonElement>('button[aria-label="Toggle Muse experimental setting"]')!;
+    await act(() => toggle.click());
+    await flushReact();
+    expect(mockInstanceSettingsApi.updateExperimental).toHaveBeenLastCalledWith({ enableMuse: true });
+  });
+
   it("names Dot prerequisites and saves its opt-in independently in both directions", async () => {
     await renderPage();
     const selector = 'button[aria-label="Toggle OpenAI Dot experimental setting"]';
@@ -383,7 +393,7 @@ describe("InstanceExperimentalSettings — Conference Room Chat card (PAP-11233)
     await renderPage();
 
     expect(container.textContent).toContain("Paperclip Runner");
-    expect(container.textContent).toContain("Onboarding continues to use legacy adapters");
+    expect(container.textContent).toContain("First-run setup offers qualified GitHub Copilot");
     const toggle = container.querySelector<HTMLButtonElement>(
       PAPERCLIP_RUNNER_TOGGLE_SELECTOR,
     );

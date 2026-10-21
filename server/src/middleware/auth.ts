@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { Request, RequestHandler } from "express";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
   activityLog,
@@ -62,7 +62,7 @@ function pruneCloudTenantWriteDebounce(
     debounce.delete(oldestSubject);
   }
 }
-import { instanceSettingsService } from "../services/instance-settings.js";
+import { resolveOwnerInstanceAdmin } from "../services/cloud-tenant-authority.js";
 import { ensureHumanRoleDefaultGrants } from "../services/principal-access-compatibility.js";
 import { forbidden, unauthorized, unprocessable } from "../errors.js";
 
@@ -383,6 +383,10 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         return;
       }
 
+      if (agentRecord.lifecycleHolds?.includes("setup")) {
+        next(unauthorized("Agent setup is incomplete and cannot authenticate"));
+        return;
+      }
       if (agentRecord.status === "terminated") {
         next(unauthorized("Agent is terminated and cannot authenticate"));
         return;
@@ -429,6 +433,29 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         identityRun.activeIdentityContextId = captured.context?.id ?? null;
         identityRun.responsibleUserId = captured.context?.responsibleUserId ?? null;
       }
+      if (claims.authorizing_user_id) {
+        // This signed projection exists only for internal native tools. Recheck
+        // the admitted run and current immutable binding on every API call.
+        try {
+          const { parseNativeExecutionInput } = await import("../vendor/paperclip-runner/index.js");
+          const { museRunnerBroker } = await import("../services/muse-runner-broker.js");
+          const [nativeRun] = await db.select({ status: heartbeatRuns.status, runtimeMode: heartbeatRuns.runtimeMode,
+            nativeExecutionInput: sql<unknown>`${heartbeatRuns.runnerProfileJson}->'nativeExecutionInput'`,
+          }).from(heartbeatRuns).where(and(
+            eq(heartbeatRuns.id, claims.run_id), eq(heartbeatRuns.companyId, claims.company_id), eq(heartbeatRuns.agentId, claims.sub),
+          ));
+          const execution = parseNativeExecutionInput(nativeRun?.nativeExecutionInput);
+          if (nativeRun?.status !== "running" || nativeRun.runtimeMode !== "native" || execution.schema !== "paperclip.native-execution-input.v8"
+            || execution.binding.runId !== claims.run_id || execution.binding.agentId !== claims.sub || execution.binding.companyId !== claims.company_id
+            || await museRunnerBroker(db).authorizingUserIdForBinding(execution.provider.binding) !== claims.authorizing_user_id) {
+            throw new Error("Muse internal tool authority mismatch");
+          }
+          await museRunnerBroker(db).assertRunAuthority(execution);
+        } catch {
+          _res.status(403).json({ error: "Muse native tool authority is unavailable" });
+          return;
+        }
+      }
       const onBehalfOfUserId = identityRun?.activeIdentityContextId
         ? identityRun.responsibleUserId
         : claims.responsible_user_id !== undefined
@@ -451,6 +478,7 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
         keyScope: normalizeAgentApiKeyScope(claims.key_scope),
         runId: claims.run_id,
         onBehalfOfUserId,
+        ...(claims.authorizing_user_id ? { authorizingUserId: claims.authorizing_user_id } : {}),
         identityContextId: identityRun?.activeIdentityContextId ?? null,
         onBehalfOfMemberships,
         source: "agent_jwt",
@@ -472,6 +500,10 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
 
     if (!agentRecord || agentRecord.companyId !== key.companyId) {
       next(unauthorized("Agent record is missing or belongs to another company; obtain fresh credentials and retry"));
+      return;
+    }
+    if (agentRecord.lifecycleHolds?.includes("setup")) {
+      next(unauthorized("Agent setup is incomplete and cannot authenticate"));
       return;
     }
     if (agentRecord.status === "terminated") {
@@ -531,31 +563,6 @@ export function actorMiddleware(db: Db, opts: ActorMiddlewareOptions): RequestHa
     }
     continueRequest?.();
   };
-}
-
-/**
- * Whether the trusted-header actor being resolved should carry computed
- * instance-admin elevation: only the stack `owner` role elevates, and only
- * while `enableOwnerInstanceAdmin` is enabled. The flag is resolved through
- * the instance-settings service so the cloud managed-config overlay applies
- * (the harness can turn elevation off fleet-wide without touching tenant
- * DBs). Fails closed: a settings read error means no elevation.
- */
-async function resolveOwnerInstanceAdmin(
-  db: Db,
-  stackRole: "owner" | "admin" | "member" | "support",
-): Promise<boolean> {
-  if (stackRole !== "owner") return false;
-  try {
-    const experimental = await instanceSettingsService(db).getExperimental();
-    return experimental.enableOwnerInstanceAdmin === true;
-  } catch (err) {
-    logger.warn(
-      { err },
-      "Failed to resolve enableOwnerInstanceAdmin for cloud tenant owner; treating elevation as disabled",
-    );
-    return false;
-  }
 }
 
 /**
@@ -764,6 +771,7 @@ async function resolveCloudTenantActorOnce(
     // company-scoped. Turning the flag off de-elevates on the next request —
     // there is no role row to clean up.
     isInstanceAdmin: await resolveOwnerInstanceAdmin(db, stackRole),
+    canManageExperimentalSettings: stackRole === "admin",
     source: "cloud_tenant",
   };
 }

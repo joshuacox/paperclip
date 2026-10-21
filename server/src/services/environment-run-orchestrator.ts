@@ -205,6 +205,7 @@ export function environmentRunOrchestrator(
   async function acquireLease(input: {
     companyId: string;
     environment: Environment;
+    configuredEnvironment?: Environment;
     issueId: string | null;
     agentId: string;
     heartbeatRunId: string;
@@ -291,6 +292,7 @@ export function environmentRunOrchestrator(
     const acquisitionInput = {
       companyId: input.companyId,
       environment,
+      configuredEnvironment: selectedEnvironment,
       issueId: input.issueId,
       agentId: input.agentId,
       heartbeatRunId: input.heartbeatRunId,
@@ -399,6 +401,15 @@ export function environmentRunOrchestrator(
     } = input;
     let { lease, persistedExecutionWorkspace } = input;
 
+    if (executionWorkspace.providerBinding) {
+      const binding = executionWorkspace.providerBinding;
+      if (environment.driver !== "plugin" || adapterType !== "paperclip_runner" || lease.metadata?.pluginId !== binding.pluginId || !await environmentRuntime.supportsTasks({ lease })) {
+        throw new EnvironmentRunError("workspace_realization_failed", "The execution plugin cannot access this managed workspace.", { environmentId: environment.id });
+      }
+      const updated = await environmentsSvc.updateLeaseMetadata(lease.id, { ...lease.metadata, workspaceProvider: binding });
+      if (!updated) throw new Error("Workspace execution lease disappeared");
+      lease = updated;
+    }
     // Step 1: Build workspace realization request
     const workspaceRealizationRequest = buildWorkspaceRealizationRequest({
       adapterType,
@@ -479,7 +490,7 @@ export function environmentRunOrchestrator(
         "Skip host provisionCommand for sandbox-driver environment; the adapter stage.sync step delivers the provisioned tree",
       );
     }
-    if (provisionCommand && !driverSkipsHostProvision) {
+    if (provisionCommand && !executionWorkspace.providerBinding && !driverSkipsHostProvision) {
       try {
         const provisionResult = await environmentRuntime.execute({
           environment,
@@ -553,6 +564,11 @@ export function environmentRunOrchestrator(
         environmentRuntime,
         duplexObservabilityRecorder: input.duplexObservabilityRecorder ?? null,
       });
+      // The native plugin task bridge owns guest paths. Never fall back to host execution.
+      if (executionWorkspace.providerBinding && (executionTarget?.kind !== "remote" ||
+          !("runnerTask" in executionTarget) || typeof executionTarget.runnerTask !== "function")) {
+        throw new Error("Managed workspace execution requires the native plugin task bridge");
+      }
       const realizationMode = workspaceRealization.mode === "in_place" ? "in_place" : "copy";
       const authoritativeRoot =
         typeof workspaceRealization.authoritativeRoot === "string" && workspaceRealization.authoritativeRoot.trim().length > 0
