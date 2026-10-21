@@ -19,6 +19,12 @@ describe("controller-owned completion continuation", () => {
       .toEqual({ ...yielded, continuation });
   });
 
+  it("continues staged workspace preparation from the current server-owned task", async () => {
+    const preparation = { kind: "same_agent", summary: "Continue with the prepared repository.", idempotencyKey: "repository:task:receipt:run" };
+    expect(await resolveCompletionContinuation(yielded, "run", async () => ({ ...context, completionContinuation: preparation })))
+      .toEqual({ ...yielded, continuation: preparation });
+  });
+
   it.each([
     null, { ...context, run: { id: "other" } }, { ...context, activeTask: { executionRunId: "other" } },
     { ...context, completionContinuation: null }, { ...context, completionContinuation: { kind: "response_wake" } },

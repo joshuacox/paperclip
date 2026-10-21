@@ -21,7 +21,7 @@ selection, reusing the existing campaign accounting and reporting pipeline.
 | Yielded monitor presentation | Explanation retained; no false completion or duplicate question | Repair and focused checks pass |
 | Monitor conversation lineage | Exact scheduling receipt; current authorization; no unrelated channel disclosure | Repair and database checks pass |
 | Free-text question card | Prompt, context, and Respond visible; answers stay private | Repair and database checks pass |
-| Repository preparation | Authorized context; automatic successor; retained workspace and tools | Inspecting existing repairs |
+| Repository preparation | Authorized context; automatic successor; retained workspace and tools | Same-agent continuation repair and composed regressions pass; live proof pending |
 | Finalization recovery | Saved result survives; zero repeated completed provider turns | Saved-summary repair and database checks pass |
 | Migration and follow-ups | Configuration retained and subsequent work delivered | Qualification pending |
 
@@ -46,9 +46,10 @@ the presence of a fixture.
 ## Baseline
 
 Source base: `8b4ab65b1c3d863d282752e83307943720a5c85c`.
-Private incident evidence stays outside the public repository. Serving revision,
-runner artifact, and historical successful deployment still require independent
-capture. Workspace and lifecycle changes identify changed execution paths, not
+Private incident evidence stays outside the public repository. The serving
+container build record independently matches the source base above. Runner
+artifact and historical successful deployment still require independent capture.
+Workspace and lifecycle changes identify changed execution paths, not
 an established single introducing cause. The earlier staging settings regression
 already has a merged repair; verify it rather than duplicating that change.
 
@@ -61,3 +62,11 @@ The repaired six-file cohort passes 148 checks against real disposable PostgreSQ
 including existing monitor scheduling, revocation, and recovery boundaries.
 Workspace typecheck passes. Full build, full suite, review, and live qualification
 remain separate gates. No deployed acceptance is claimed here.
+
+The repository repair adds current-task pending-repository eligibility and uses
+the existing same-agent status decision and wake queue. Five composed server
+suites pass 100 checks, and the shared provider continuation driver passes 12.
+Server typecheck passes. These results include long conversation lineages,
+cycles, broken ledger receipts, current-task repository ownership, and completed
+repository rejection. Explicit completion and review modes remain distinct from
+an unfinished standard-task yield. They do not establish the live matrix.

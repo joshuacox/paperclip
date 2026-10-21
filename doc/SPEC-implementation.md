@@ -1649,6 +1649,22 @@ Scheduler must skip invocation when:
 - an existing run is active
 - hard budget limit has been hit
 
+Budget admission and accounting serialize under the company accounting lock.
+The dispatch boundary rechecks current company, agent, and project policies and
+reserves capacity before paid work starts. Accounting commits budget blocks and
+durable stop intent without waiting for provider shutdown or reconciling unrelated
+agents. An asynchronous worker cancels only work in the affected scope; committed
+stop intent survives policy changes and restart until existing stop proof succeeds.
+
+Accepted cumulative per-run usage checkpoints contribute observed running spend
+before the final ledger charge. Admission counts each unfinished operation's
+maximum of its reservation and observed spend; hard stops count actual ledger
+and observed running spend, rather than reservation estimates. Final settlement
+atomically replaces the observation with the ledger charge. Incomplete or unknown
+accounting remains conservative. Mid-run enforcement depends on provider usage
+reports or existing supported pricing; providers reporting only at completion
+cannot offer exact mid-call spend detection.
+
 Legacy execution records a renewable controller lease when claiming a queued run,
 before provisioning. A live lease protects the run during overlapping service
 deployments. An expired controller loses dispatch authority; a recovery worker

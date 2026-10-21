@@ -14,12 +14,12 @@ export async function resolveCompletionContinuation(
   const task = object(context.activeTask);
   const continuation = object(context.completionContinuation);
   if (object(context.run).id !== runId || task.executionRunId !== runId ||
-      continuation.kind !== "monitor" ||
+      !["monitor", "same_agent"].includes(String(continuation.kind)) ||
       typeof continuation.summary !== "string" || !continuation.summary.trim() ||
       typeof continuation.idempotencyKey !== "string" || !continuation.idempotencyKey.trim()) {
-    throw new Error("Cannot yield without a continuation: no eligible saved monitor exists on this task. Save a monitor with set_task_monitor, provide an explicit response_wake for a real response wait, or continue the unfinished work. Do not repeat completed actions.");
+    throw new Error("Cannot yield without a continuation: no eligible saved monitor or workspace continuation exists on this task. Save a monitor for a deferred check, provide an explicit response_wake for a real response wait, or continue the unfinished work. Do not repeat completed actions.");
   }
-  return { ...report, continuation: { kind: "monitor", summary: continuation.summary, idempotencyKey: continuation.idempotencyKey } };
+  return { ...report, continuation: { kind: continuation.kind, summary: continuation.summary, idempotencyKey: continuation.idempotencyKey } };
 }
 
 function object(value: unknown): Record<string, unknown> {
