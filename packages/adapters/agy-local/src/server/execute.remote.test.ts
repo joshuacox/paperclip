@@ -476,7 +476,7 @@ describe("agy-local execute (remote execution)", () => {
     expect(capturedProcessRuns[0].args).not.toContain("conv-mismatched-1");
   });
 
-  it("stages mcp-config asset and links mcp_config.json in sandbox when runtime MCP servers are present", async () => {
+  it("stages mcp-config asset and materializes mcp_config.json in the isolated home on sandbox targets", async () => {
     const rootDir = await makeTmpDir();
     const workspaceDir = path.join(rootDir, "workspace");
     await fs.mkdir(workspaceDir, { recursive: true });
@@ -527,11 +527,12 @@ describe("agy-local execute (remote execution)", () => {
       }),
     );
 
-    // Shell command materialized mcp_config.json in sandbox config dir
+    // Shell command materialized mcp_config.json in the run's isolated
+    // HOME under the runtime root, not in the shared managed home.
     expect(runAdapterExecutionTargetShellCommand).toHaveBeenCalledWith(
       "run-remote-mcp",
       expect.objectContaining({ kind: "remote" }),
-      expect.stringContaining(".gemini/config/mcp_config.json"),
+      expect.stringContaining("/remote/runtime/home/.gemini/config/mcp_config.json"),
       expect.anything(),
     );
 
@@ -542,13 +543,13 @@ describe("agy-local execute (remote execution)", () => {
       }),
     );
   });
-  it("backs up a pre-existing remote mcp_config.json and restores it on teardown", async () => {
+  it("keeps managed-home MCP config in the isolated per-run HOME and never writes the shared managed home", async () => {
     const rootDir = await makeTmpDir();
     const workspaceDir = path.join(rootDir, "workspace");
     await fs.mkdir(workspaceDir, { recursive: true });
 
     const ctx: AdapterExecutionContext = {
-      runId: "run-remote-mcp-restore",
+      runId: "run-managed-isolated-mcp",
       agent: {
         id: "agent-1",
         companyId: "company-1",
@@ -584,41 +585,39 @@ describe("agy-local execute (remote execution)", () => {
 
     await execute(ctx);
 
-    // The link step preserves any pre-existing remote file as a backup
-    // before replacing it, instead of deleting it outright.
     const shellCommands = (vi.mocked(runAdapterExecutionTargetShellCommand).mock.calls as unknown as unknown[][])
       .map((call) => String(call[2]));
-    const linkCommand = shellCommands.find(
-      (command) => command.includes("ln -s") && command.includes("mcp_config.json"),
-    );
-    expect(linkCommand).toBeDefined();
-    expect(linkCommand).toContain("mcp_config.json.paperclip-backup-run-remote-mcp-restore");
-    expect(linkCommand).toContain("cp -a");
 
-    // The mcp-config asset carries a restore that moves the backup back
-    // into place during workspace teardown.
-    type CapturedAsset = {
-      key: string;
-      restore?: (ctx: { assetDir: string; readFile: (p: string) => Promise<Buffer> }) => Promise<void>;
-    };
+    // The staged config is copied into the isolated per-run HOME under the
+    // runtime root, the same pattern unmanaged targets use.
+    const isolatedSetup = shellCommands.find(
+      (command) =>
+        command.includes("/remote/runtime/home/.gemini/config/mcp_config.json") &&
+        command.includes("cp -a"),
+    );
+    expect(isolatedSetup).toBeDefined();
+
+    // Nothing writes the shared managed home's config path, and the old
+    // backup/restore machinery is gone: concurrent runs can no longer
+    // replace or restore over each other's active MCP config.
+    expect(
+      shellCommands.some((command) =>
+        command.includes('"/remote/runtime/.gemini/config/mcp_config.json"'),
+      ),
+    ).toBe(false);
+    expect(
+      shellCommands.some((command) => command.includes("paperclip-backup")),
+    ).toBe(false);
+
+    // With nothing outside the isolated HOME to undo, the mcp-config
+    // asset carries no restore callback.
+    type CapturedAsset = { key: string; restore?: unknown };
     const prepareCalls = vi.mocked(prepareAdapterExecutionTargetRuntime).mock.calls as unknown as Array<[{ assets?: CapturedAsset[] }]>;
     const mcpAsset = prepareCalls
       .flatMap((call) => call[0].assets ?? [])
       .find((asset) => asset.key === "mcp-config");
-    expect(mcpAsset?.restore).toBeTypeOf("function");
-
-    vi.mocked(runAdapterExecutionTargetShellCommand).mockClear();
-    await mcpAsset!.restore!({
-      assetDir: "/remote/runtime/mcp-config",
-      readFile: async () => Buffer.from(""),
-    });
-    const restoreCommands = (vi.mocked(runAdapterExecutionTargetShellCommand).mock.calls as unknown as unknown[][])
-      .map((call) => String(call[2]));
-    const restoreCommand = restoreCommands.find((cmd) => cmd.includes("mcp_config.json.paperclip-backup-run-remote-mcp-restore"));
-    expect(restoreCommand).toBeDefined();
-    expect(restoreCommand).toContain("readlink");
-    expect(restoreCommand).toContain("mv");
-    expect(restoreCommand).toContain("rm -rf");
+    expect(mcpAsset).toBeDefined();
+    expect(mcpAsset?.restore).toBeUndefined();
   });
 
   it("configures MCP servers in an isolated per-run HOME on unmanaged SSH targets without mutating the user real ~/.gemini/config/mcp_config.json", async () => {

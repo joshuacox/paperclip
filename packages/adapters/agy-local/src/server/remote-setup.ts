@@ -60,8 +60,8 @@ export interface PreparedAgyRemoteRun {
 /**
  * Remote-run setup for agy_local: stage the Antigravity home and MCP
  * config on the controller, sync the workspace and runtime assets to the
- * target, and wire the run environment (managed HOME, CLI homes pointed
- * at the staged asset dir, remote MCP config link). Extracted from
+ * target, and wire the run environment (CLI homes pointed at the staged
+ * asset dir, isolated per-run HOME carrying the run's MCP config). Extracted from
  * execute.ts so the executor stays reviewable; behavior is unchanged.
  */
 export async function prepareAgyRemoteRun(
@@ -95,9 +95,6 @@ export async function prepareAgyRemoteRun(
   let stagedAgyHomeDir: string | null = null;
   let stagedMcpConfigDir: string | null = null;
   let effectiveExecutionCwd = input.effectiveExecutionCwd;
-  // Assigned by the MCP link step once the remote home is known; the
-  // mcp-config asset's restore callback delegates to it during teardown.
-  let restoreRemoteMcpConfig: (() => Promise<void>) | null = null;
 
   // Remote setup stages credential-bearing temp directories on the
   // controller before the run starts. Any failure after staging — during
@@ -180,9 +177,6 @@ export async function prepareAgyRemoteRun(
                 key: "mcp-config",
                 localDir: stagedMcpConfigDir,
                 followSymlinks: true,
-                restore: async () => {
-                  await restoreRemoteMcpConfig?.();
-                },
               },
             ]
           : []),
@@ -239,12 +233,19 @@ export async function prepareAgyRemoteRun(
     }
 
     let effectiveRemoteHomeDir = remoteHomeDir;
-    if (!managedRemoteHomeDir && preparedExecutionTargetRuntime.assetDirs["mcp-config"] && preparedExecutionTargetRuntime.runtimeRootDir) {
-      // For unmanaged targets (such as SSH), provide an isolated per-run
-      // HOME under runtimeRootDir. Link ~/.gemini/antigravity-cli, ~/.gemini/antigravity,
-      // and any other non-MCP .gemini/config entries from the user's real home,
-      // and put this run's mcp_config.json in place. This gives the run its assigned
-      // MCP tools without touching or clobbering the remote user's real ~/.gemini/config/mcp_config.json.
+    if (preparedExecutionTargetRuntime.assetDirs["mcp-config"] && preparedExecutionTargetRuntime.runtimeRootDir) {
+      // Every remote run gets an isolated per-run HOME under
+      // runtimeRootDir. Link ~/.gemini/antigravity-cli, ~/.gemini/antigravity,
+      // and any other non-MCP .gemini/config entries from the target's home,
+      // and put this run's mcp_config.json in place. This gives the run its
+      // assigned MCP tools without touching or clobbering the target home's
+      // own ~/.gemini/config/mcp_config.json — for unmanaged targets (such as
+      // SSH) that home is the remote user's real one; for managed-home
+      // targets it is the runtime root shared by the workspace's runs, where
+      // writing the config directly let concurrent runs replace (or restore
+      // over) each other's active MCP config. Managed runs use the managed
+      // root as the link source, exactly as unmanaged runs use the user's
+      // real home.
       const isolatedHomeDir = path.posix.join(preparedExecutionTargetRuntime.runtimeRootDir, "home");
       const isolatedConfigDir = path.posix.join(isolatedHomeDir, ".gemini", "config");
       const stagedMcpConfigRemote = preparedExecutionTargetRuntime.assetDirs["mcp-config"];
@@ -264,29 +265,6 @@ export async function prepareAgyRemoteRun(
       await onLog(
         "stdout",
         `[paperclip] Configured ${runtimeMcpServers.length} Paperclip-managed MCP server(s) in isolated remote ${targetMcpConfig}.\n`,
-      );
-    } else if (managedRemoteHomeDir && preparedExecutionTargetRuntime.assetDirs["mcp-config"]) {
-      const stagedMcpConfigRemote = preparedExecutionTargetRuntime.assetDirs["mcp-config"];
-      const targetMcpConfig = path.posix.join(managedRemoteHomeDir, ".gemini", "config", "mcp_config.json");
-      const stagedMcpFile = path.posix.join(stagedMcpConfigRemote, "mcp_config.json");
-      const backupMcpConfig = `${targetMcpConfig}.paperclip-backup-${runId}`;
-      restoreRemoteMcpConfig = async () => {
-        await runAdapterExecutionTargetShellCommand(
-          runId,
-          executionTarget,
-          `if [ -L ${JSON.stringify(targetMcpConfig)} ] && [ "$(readlink ${JSON.stringify(targetMcpConfig)})" = ${JSON.stringify(stagedMcpFile)} ] || ([ -f ${JSON.stringify(targetMcpConfig)} ] && cmp -s ${JSON.stringify(targetMcpConfig)} ${JSON.stringify(stagedMcpFile)}); then if [ -e ${JSON.stringify(backupMcpConfig)} ] || [ -L ${JSON.stringify(backupMcpConfig)} ]; then rm -f ${JSON.stringify(targetMcpConfig)}; mv ${JSON.stringify(backupMcpConfig)} ${JSON.stringify(targetMcpConfig)}; else rm -f ${JSON.stringify(targetMcpConfig)}; fi; else rm -rf ${JSON.stringify(backupMcpConfig)}; fi`,
-          { cwd: effectiveExecutionCwd, env, timeoutSec, graceSec, onLog },
-        ).catch(() => undefined);
-      };
-      await runAdapterExecutionTargetShellCommand(
-        runId,
-        executionTarget,
-        `mkdir -p ${JSON.stringify(path.posix.dirname(targetMcpConfig))}; if [ -L ${JSON.stringify(targetMcpConfig)} ] && [ "$(readlink ${JSON.stringify(targetMcpConfig)})" = ${JSON.stringify(stagedMcpFile)} ]; then rm -f ${JSON.stringify(targetMcpConfig)}; elif [ -e ${JSON.stringify(targetMcpConfig)} ] || [ -L ${JSON.stringify(targetMcpConfig)} ]; then if [ ! -e ${JSON.stringify(backupMcpConfig)} ] && [ ! -L ${JSON.stringify(backupMcpConfig)} ]; then cp -a ${JSON.stringify(targetMcpConfig)} ${JSON.stringify(backupMcpConfig)}; fi; rm -f ${JSON.stringify(targetMcpConfig)}; fi; ln -s ${JSON.stringify(stagedMcpFile)} ${JSON.stringify(targetMcpConfig)} || cp -a ${JSON.stringify(stagedMcpFile)} ${JSON.stringify(targetMcpConfig)}`,
-        { cwd: effectiveExecutionCwd, env, timeoutSec, graceSec, onLog },
-      );
-      await onLog(
-        "stdout",
-        `[paperclip] Configured ${runtimeMcpServers.length} Paperclip-managed MCP server(s) in remote ${targetMcpConfig}.\n`,
       );
     }
 
