@@ -1941,6 +1941,39 @@ console.log(JSON.stringify({ type: "result", subtype: "success", result: "hello"
       await expect(login.check(companyId, owner, { ...intent, agentIds: [] }, id)).resolves.toEqual({ status: "ready" });
     } finally { reader.mockRestore(); await db.delete(adapterAuthSessions).where(eq(adapterAuthSessions.id, id)); }
   });
+  it("pins the Antigravity login command to the isolated home even when the host env presets CLI homes", async () => {
+    const login = localAiLoginService(db);
+    const intent = { provider: "antigravity", method: "subscription", ownership: "personal", name: "Agy login", agentIds: [], allAgents: true } as const;
+    const attempt = await login.start(companyId, "alice", intent);
+    try {
+      expect(attempt.command).toBeDefined();
+      const command = attempt.command!;
+      const homeMatch = /export HOME='([^']+)'/.exec(command);
+      expect(homeMatch).not.toBeNull();
+      const isolatedHome = homeMatch![1]!;
+      expect(isolatedHome).toContain(path.join("ai-local-logins", attempt.sessionId));
+      // Both CLI home vars are exported from the just-assigned isolated HOME,
+      // after the HOME export, so a preset host value cannot divert the token.
+      const homeExportAt = command.indexOf("export HOME=");
+      const antigravityExportAt = command.indexOf('export ANTIGRAVITY_CLI_HOME="$HOME/.gemini/antigravity-cli"');
+      const geminiExportAt = command.indexOf('GEMINI_CLI_HOME="$HOME/.gemini/antigravity-cli"');
+      expect(antigravityExportAt).toBeGreaterThan(homeExportAt);
+      expect(geminiExportAt).toBeGreaterThan(homeExportAt);
+      // Behavioral proof: evaluate the command's setup segment in a shell whose
+      // environment presets hostile CLI homes; the isolated home must win.
+      const probe = command.replace(/&& agy\)$/, '&& printf \'%s\\n%s\\n\' "$ANTIGRAVITY_CLI_HOME" "$GEMINI_CLI_HOME")');
+      expect(probe).not.toBe(command);
+      const result = spawnSync("/bin/sh", ["-c", probe], {
+        encoding: "utf8",
+        env: { ...process.env, HOME: "/hostile/home", ANTIGRAVITY_CLI_HOME: "/hostile/antigravity", GEMINI_CLI_HOME: "/hostile/gemini" },
+      });
+      expect(result.status).toBe(0);
+      const expectedCliHome = path.join(isolatedHome, ".gemini", "antigravity-cli");
+      expect(result.stdout.trim().split("\n")).toEqual([expectedCliHome, expectedCliHome]);
+    } finally {
+      await login.cancel(companyId, "alice", attempt.sessionId);
+    }
+  });
   it("requires an owned browser sign-in attempt for local subscriptions", async () => {
     const reader = vi.spyOn(localCredentials, "readVerifiedLocalAiCredential").mockResolvedValue("fixture-local-token");
     const app = express();
