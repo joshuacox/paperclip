@@ -66,6 +66,18 @@ const mockCompaniesApi = vi.hoisted(() => ({
 
 const mockAgentsApi = vi.hoisted(() => ({
   adapterModels: vi.fn(async () => []),
+  create: vi.fn(async () => ({
+    id: "setup-agent-1",
+    name: "Chief of Staff",
+    role: "general",
+    adapterType: "process",
+    adapterConfig: {},
+    metadata: { setupAdapterPending: true },
+    pauseReason: "setup",
+    status: "paused",
+    runtimeConfig: {},
+  })),
+  update: vi.fn(async () => ({})),
   getAdapterAuthSignal: vi.fn(async () => ({ status: "present" })),
   hire: vi.fn(async () => ({ agent: { id: "agent-1" }, approval: null })),
   list: vi.fn(async () => []),

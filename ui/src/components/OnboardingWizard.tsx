@@ -1232,26 +1232,6 @@ function OnboardingWizardInner({
   // attempt needs to be prepared.
   const hostAgyLoginPresent = adapterType === "agy_local" && authSignalStatus === "present";
 
-  // Persist wizard state to localStorage on every change
-  useEffect(() => {
-    if (!effectiveOnboardingOpen) return;
-    const state = {
-      step, companyName,
-      agentName, agentAppearance, agentRole, adapterType, runner, cwd, model, command, args, url,
-      // The mode, never the key: this blob is localStorage.
-      credentialMode, credentialModeChoice,
-      createdCompanyId, createdCompanyPrefix, createdAgentId,
-      createdCompanyGoalId, createdProjectId, createdIssueRef,
-    };
-    onboardingDraftStorage.write(JSON.stringify(state));
-  }, [
-    effectiveOnboardingOpen, step, companyName,
-    agentName, agentAppearance, agentRole, adapterType, runner, cwd, model, command, args, url,
-    credentialMode, credentialModeChoice,
-    createdCompanyId, createdCompanyPrefix, createdAgentId,
-    createdCompanyGoalId, createdProjectId, createdIssueRef,
-  ]);
-
   /**
    * Restores the connect sequence after a reload.
    *
