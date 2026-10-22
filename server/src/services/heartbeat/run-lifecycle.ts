@@ -1,3 +1,4 @@
+import { notifyExecutionRunWork } from "../execution-control-notifications.js";
 import os from "node:os";
 import {
   DEFERRED_WAKE_CONTEXT_KEY,
@@ -1011,12 +1012,12 @@ export function createHeartbeatLifecycle(db: Db, dependencies: HeartbeatLifecycl
   }
 
   async function writeRunStatus<T>(status: string, companyId: string | undefined, write: (tx: Db) => Promise<T>) {
-    if (!isHeartbeatRunTerminalStatus(status)) return write(db);
     // Register on the outer transaction before the terminal write. An unknown
     // commit cannot strand newly-actionable accounting after the live event.
     return db.transaction(async transaction => {
       const tx = transaction as unknown as Db;
-      await notifyDeliveryWork(tx, DELIVERY_QUEUES.accounting, companyId);
+      if (isHeartbeatRunTerminalStatus(status)) await notifyDeliveryWork(tx, DELIVERY_QUEUES.accounting, companyId);
+      await notifyExecutionRunWork(tx);
       return write(tx);
     });
   }

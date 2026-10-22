@@ -92,3 +92,42 @@ The rest of the session directory, including its control-plane state, is kept.
 
 Each batch that finds candidates logs them with candidate and reclaimed allocated
 bytes, cleared task sessions, and skip reasons.
+
+## Git workspace restore points
+
+Restore points are encrypted saves of the parts of a git worktree that its remote
+cannot reproduce: unpushed commits and uncommitted files. They let a closed issue's
+worktree be removed and restored later. The table `execution_workspace_restore_points`
+tracks each one with its storage key, hash, size and status
+(`pending`, `active`, `expiring`, `superseded`, `delete_requested`, `deleted`). The objects live in
+the instance's configured file storage (`local_disk` or `s3`).
+
+An active restore point's `delete_after` is either its expiry time or empty while its
+source issue tree is open. A database trigger on `issues` keeps this current: when an
+issue's status or parent changes, or an issue is deleted, it marks every active restore
+point whose source issue is that issue, its old or new parent, or any of their ancestors
+as due now, in the same transaction. A retention worker on the shared delivery-work
+scheduler runs at startup, when issue changes settle while restore points exist, and at
+real deadlines: the earliest expiry, the end of an abandoned capture's grace period, or
+a failed deletion's retry. With nothing due, it schedules nothing, and open trees cause
+no recurring checks. At review it checks the source issue tree:
+
+- Tree still open: clear `delete_after` and wait for the next issue change.
+- Tree `done` or `cancelled`: expire `PAPERCLIP_GIT_RESTORE_POINT_RETENTION_DAYS`
+  (default `90`, minimum `1`) after the tree's latest close, immediately if that time
+  has passed. Expiry first moves the row to `expiring`, runs the expiry hook, and only
+  then requests deletion. An `expiring` row's object is never deleted; after a restart
+  or a hook failure the hook is retried, after 15 minutes when it failed.
+- Source issue gone: delete.
+
+Deleting an issue or a company marks its restore points `delete_requested` in the same
+transaction and notifies the worker, so their objects are removed promptly. A
+`pending` restore point older than one hour was abandoned mid-capture and is deleted.
+`superseded` and `delete_requested` restore points have their stored object removed,
+then become `deleted` once the storage provider confirms the object is gone. A
+storage failure is recorded in `last_error` and retried after 15 minutes. Work is
+processed in batches of 50; a full batch continues immediately.
+
+Rows have no foreign keys, so they outlive a deleted workspace, issue or company long
+enough to remove the stored object. Each run that changes anything logs its counts.
+

@@ -1,5 +1,5 @@
 {
-  "id": "536a4f51-656d-465a-a244-b9226a6f0fd5",
+  "id": "7caf727e-0913-40b3-b01c-842e9447666f",
   "prevId": "a7c9681c-fb33-47c3-8139-3d88d7bbfe19",
   "version": "7",
   "dialect": "postgresql",
@@ -4436,7 +4436,7 @@
       "checkConstraints": {
         "ai_connection_defaults_provider_check": {
           "name": "ai_connection_defaults_provider_check",
-          "value": "\"ai_connection_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google','github','antigravity')"
+          "value": "\"ai_connection_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google','github')"
         },
         "ai_connection_defaults_method_check": {
           "name": "ai_connection_defaults_method_check",
@@ -4909,7 +4909,7 @@
       "checkConstraints": {
         "ai_provider_defaults_provider_check": {
           "name": "ai_provider_defaults_provider_check",
-          "value": "\"ai_provider_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google','github','antigravity')"
+          "value": "\"ai_provider_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google','github')"
         }
       },
       "isRLSEnabled": false
@@ -8252,6 +8252,24 @@
       "name": "case_handoffs",
       "schema": "",
       "columns": {
+        "workflow_transition": {
+          "name": "workflow_transition",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "workflow_prompt": {
+          "name": "workflow_prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "base_workflow_document_revision_id": {
+          "name": "base_workflow_document_revision_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "id": {
           "name": "id",
           "type": "uuid",
@@ -9067,6 +9085,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "workflow_id": {
+          "name": "workflow_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "handoff_version": {
           "name": "handoff_version",
           "type": "integer",
@@ -9403,6 +9427,19 @@
           "tableTo": "issues",
           "columnsFrom": [
             "work_issue_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "cases_workflow_id_workflows_id_fk": {
+          "name": "cases_workflow_id_workflows_id_fk",
+          "tableFrom": "cases",
+          "tableTo": "workflows",
+          "columnsFrom": [
+            "workflow_id"
           ],
           "columnsTo": [
             "id"
@@ -59277,6 +59314,113 @@
           "value": "\"work_assessments\".\"trigger_actor_company_id\" = \"work_assessments\".\"company_id\""
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.workflows": {
+      "name": "workflows",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "company_id": {
+          "name": "company_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prompt": {
+          "name": "prompt",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by_agent_id": {
+          "name": "created_by_agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "workflows_company_idx": {
+          "name": "workflows_company_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "workflows_company_id_companies_id_fk": {
+          "name": "workflows_company_id_companies_id_fk",
+          "tableFrom": "workflows",
+          "tableTo": "companies",
+          "columnsFrom": [
+            "company_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "workflows_created_by_agent_id_agents_id_fk": {
+          "name": "workflows_created_by_agent_id_agents_id_fk",
+          "tableFrom": "workflows",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "created_by_agent_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.workspace_operations": {

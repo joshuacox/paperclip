@@ -47,6 +47,8 @@ import type {
 import { QuestionForm, QuestionResponseSummary } from "./QuestionForm";
 import { TaskChatComposerTakeoverHeader } from "./TaskChatComposerTakeoverContext";
 import { RichWorkProductCard } from "./RichWorkProductCard";
+import { useArtifactsV1Enabled } from "@/hooks/useArtifactsV1Enabled";
+import { ArtifactFileRow, ArtifactRow, fileRowSourceFromAttachment, fileRowSourceFromWorkProduct, subjectFromAttachment, subjectFromDocumentSummary, subjectFromWorkProduct, workProductStateBadge } from "@/components/artifacts/v1";
 
 export interface TaskChatProtocolCardProps {
   item: TaskChatProtocolItem;
@@ -1018,6 +1020,30 @@ function ResourceCard({
 }: {
   item: Extract<TaskChatProtocolItem, { surface: "resource" }>;
 }) {
+  const { enabled: artifactsV1 } = useArtifactsV1Enabled();
+  if (artifactsV1) {
+    // Artifacts V1 (doc/plans/2026-10-22-artifacts-mvp-v1.md): one full-width row named after the file. A
+    // registered file keeps the shipped card's actions (gallery, text tab, open raw, download, CSV preview);
+    // any other deliverable is a link that opens in a new tab with its state — "Unhealthy" first — beside it.
+    const href = item.href ?? undefined;
+    const testId = `task-chat-resource-${item.resourceKind}`;
+    if (item.resourceKind === "deliverable" && item.workProduct) {
+      const workProduct = item.workProduct;
+      const statusBadge = workProductStateBadge(workProduct);
+      const file = fileRowSourceFromWorkProduct(workProduct);
+      if (file) {
+        return <ArtifactFileRow subject={subjectFromWorkProduct(workProduct)} source={file} statusBadge={statusBadge} updatedAtLabel={item.timestamp ?? ""} testId={testId} />;
+      }
+      return <ArtifactRow subject={subjectFromWorkProduct(workProduct)} href={href} external trailing={statusBadge} testId={testId} />;
+    }
+    if (item.resourceKind === "attachment" && item.attachment) {
+      return <ArtifactFileRow subject={subjectFromAttachment(item.attachment)} source={fileRowSourceFromAttachment(item.attachment)} updatedAtLabel={item.timestamp ?? ""} testId={testId} />;
+    }
+    const subject = item.document
+      ? subjectFromDocumentSummary(item.document)
+      : { kind: item.resourceKind === "document" ? ("document" as const) : ("file" as const), title: item.title };
+    return <ArtifactRow subject={subject} href={href} external={item.resourceKind === "attachment"} testId={testId} />;
+  }
   if (item.resourceKind === "deliverable" && item.workProduct) {
     return <RichWorkProductCard workProduct={item.workProduct} href={item.href} />;
   }

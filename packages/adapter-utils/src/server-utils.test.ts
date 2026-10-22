@@ -20,6 +20,7 @@ import {
   isPaperclipExternalChatQuestionResponseTurn,
   isPaperclipExternalChatTurn,
   materializePaperclipSkillCopy,
+  normalizePaperclipRunnerAdapterConfig,
   PAPERCLIP_OPERATIONAL_SKILL_KEY,
   PAPERCLIP_FEEDBACK_SKILL_KEYS,
   refreshPaperclipWorkspaceEnvForExecution,
@@ -74,6 +75,11 @@ describe("ensurePaperclipSkillSymlink", () => {
     expect(calls).toEqual([`unlink:${target}`, `link:${target}`]);
     await fs.rm(root, { recursive: true, force: true });
   });
+});
+it("keeps Pi draft models empty and preserves saved native Pi settings", () => {
+  expect(normalizePaperclipRunnerAdapterConfig("paperclip_runner", { provider: "acpx", acpxAgent: "pi", model: "" })).toMatchObject({ provider: "acpx", acpxAgent: "pi", model: "" });
+  const saved = { provider: "acpx", acpxAgent: "pi", model: "openrouter/provider/model", piThinkingLevel: "max", acpxPermissionMode: "approve-reads", lifecycleMode: "warm" };
+  expect(normalizePaperclipRunnerAdapterConfig("paperclip_runner", saved)).toMatchObject(saved);
 });
 
 it("reserves identity credentials even for mixed-case inherited or configured keys", () => {

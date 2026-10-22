@@ -1,3 +1,4 @@
+import { notifyExecutionRunWork } from "../execution-control-notifications.js";
 import { reconcileMuseNativeTerminalRun } from "./muse-terminal-reconciliation.js";
 import { assertNativeCaseHandoffResult } from "./native-case-handoff.js";
 import { scheduledIssueMonitorWait } from "../issue-monitors.js";
@@ -420,6 +421,7 @@ async function recordRetryableFailure(input: {
             : "native_finalization_retry_exhausted"
           : input.failureCode;
     if (phase === "terminal_failure") await notifyDeliveryWork(tx, DELIVERY_QUEUES.accounting, input.run.companyId);
+    await notifyExecutionRunWork(tx);
     await tx
       .update(nativeRunFinalizations)
       .set({
@@ -599,6 +601,9 @@ export async function recordNativeFinalizationFailure(input: {
     message,
     nextAction:
       input.failureScope === "workspace"
+        && (message === "native_plugin_workspace_branch_mismatch" || message === "native_plugin_workspace_owner_mismatch")
+        ? "Repair the plugin workspace branch or owner, then resume finalization without another provider turn."
+        : input.failureScope === "workspace"
         ? input.permanent
           ? "Restore the exact sandbox containing the unexported workspace changes, or resolve the task manually from durable evidence."
           : "Retry workspace export and merge from the retained sandbox; do not submit another provider turn."
@@ -705,6 +710,7 @@ async function projectCommittedRun(input: {
   const [updatedRun] = await input.db.transaction(async transaction => {
     const tx = transaction as unknown as Db;
     await notifyDeliveryWork(tx, DELIVERY_QUEUES.accounting, input.run.companyId);
+    await notifyExecutionRunWork(tx);
     return tx
       .update(heartbeatRuns)
       .set({
@@ -1617,13 +1623,12 @@ export async function finalizeNativeRun(input: {
         })
         .where(eq(heartbeatRuns.id, run.id))
         .returning();
-      const [updatedRun] = input.projectRunStatus
-        ? await input.db.transaction(async transaction => {
-            const tx = transaction as unknown as Db;
-            await notifyDeliveryWork(tx, DELIVERY_QUEUES.accounting, run.companyId);
-            return projectRun(tx);
-          })
-        : await projectRun(input.db);
+      const [updatedRun] = await input.db.transaction(async transaction => {
+        const tx = transaction as unknown as Db;
+        if (input.projectRunStatus) await notifyDeliveryWork(tx, DELIVERY_QUEUES.accounting, run.companyId);
+        await notifyExecutionRunWork(tx);
+        return projectRun(tx);
+      });
       if (
         input.projectRunStatus &&
         !alreadyEmittedByCommittedDecision &&
