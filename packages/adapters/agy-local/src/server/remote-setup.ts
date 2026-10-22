@@ -268,11 +268,7 @@ export async function prepareAgyRemoteRun(
       );
     }
 
-    Object.assign(runtimeEnv, {
-      ...(env.HOME ? { HOME: env.HOME } : {}),
-      ...(env.ANTIGRAVITY_CLI_HOME ? { ANTIGRAVITY_CLI_HOME: env.ANTIGRAVITY_CLI_HOME } : {}),
-      ...(env.GEMINI_CLI_HOME ? { GEMINI_CLI_HOME: env.GEMINI_CLI_HOME } : {}),
-    });
+    Object.assign(runtimeEnv, env);
   } catch (error) {
     await cleanupSetupFailure();
     throw error;

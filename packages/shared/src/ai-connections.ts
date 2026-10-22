@@ -160,6 +160,7 @@ export function adapterSupportsAiConnections(
   acpxAgent?: unknown,
 ): boolean {
   const harness = aiRoutingHarness(adapterType, runnerProvider, acpxAgent);
+  if (harness === "hermes_local") return true;
   return Object.values(AI_CONNECTION_CAPABILITIES).some((capability) =>
     Object.values(capability.methods).some((method) =>
       method?.adapters.includes(harness),

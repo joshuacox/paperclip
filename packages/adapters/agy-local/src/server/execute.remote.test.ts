@@ -272,6 +272,7 @@ describe("agy-local execute (remote execution)", () => {
     // user's own ~/.gemini/antigravity-cli is never deleted or replaced.
     expect(run.options.env.ANTIGRAVITY_CLI_HOME).toBe("/remote/runtime/assets/agy-home");
     expect(run.options.env.GEMINI_CLI_HOME).toBe("/remote/runtime/assets/agy-home");
+    expect(run.options.env.PAPERCLIP_WORKSPACE_CWD).toBe("/remote/workspace");
     const shellCommandCalls = vi.mocked(runAdapterExecutionTargetShellCommand).mock.calls as unknown as unknown[][];
     const shellCommands = shellCommandCalls.map((call) => String(call[2]));
     expect(shellCommands.some((command) => command.includes("rm -rf"))).toBe(false);

@@ -9,6 +9,7 @@ describe("adapterSupportsAiConnections", () => {
     expect(adapterSupportsAiConnections("grok_local")).toBe(true);
     expect(adapterSupportsAiConnections("agy_local")).toBe(true);
     expect(adapterSupportsAiConnections("gemini_local")).toBe(true);
+    expect(adapterSupportsAiConnections("hermes_local")).toBe(true);
   });
 
   it("handles paperclip_runner with supported and unsupported providers", () => {
