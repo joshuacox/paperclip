@@ -218,6 +218,32 @@ describe("parseAgyStdoutLine", () => {
     ]);
   });
 
+  it("handles cancelled or error result event with error message", () => {
+    const line = JSON.stringify({
+      event: "result",
+      result: {
+        conversation_id: "conv-123",
+        status: "CANCELLED",
+        error: { message: "Task was cancelled" },
+      },
+    });
+    const entries = parseAgyStdoutLine(line, ts);
+    expect(entries).toEqual([
+      {
+        kind: "result",
+        ts,
+        text: "Task was cancelled",
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedTokens: 0,
+        costUsd: 0,
+        subtype: "error",
+        isError: true,
+        errors: ["Task was cancelled"],
+      },
+    ]);
+  });
+
   it("falls back to stdout entry for non-json lines", () => {
     const line = "Plain text output from process";
     const entries = parseAgyStdoutLine(line, ts);

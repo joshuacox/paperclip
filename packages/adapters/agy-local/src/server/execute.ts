@@ -102,13 +102,25 @@ export function resolveAgyPrintTimeoutSec(timeoutSec: number): number {
   return Math.max(30, timeoutSec - margin);
 }
 
-export async function discoverAgySessionArtifacts(sessionId: string): Promise<string[]> {
+export async function discoverAgySessionArtifacts(
+  sessionId: string,
+  cliHomeDirs?: string[],
+): Promise<string[]> {
   if (!sessionId || typeof sessionId !== "string") return [];
   const homedir = os.homedir();
-  const candidateDirs = [
-    path.join(homedir, ".gemini", "antigravity-cli", "brain", sessionId),
-    path.join(homedir, ".gemini", "antigravity", "brain", sessionId),
-  ];
+  const baseHomes = new Set<string>();
+  if (Array.isArray(cliHomeDirs)) {
+    for (const h of cliHomeDirs) {
+      if (typeof h === "string" && h.trim()) baseHomes.add(h.trim());
+    }
+  }
+  baseHomes.add(path.join(homedir, ".gemini", "antigravity-cli"));
+  baseHomes.add(path.join(homedir, ".gemini", "antigravity"));
+
+  const candidateDirs: string[] = [];
+  for (const home of baseHomes) {
+    candidateDirs.push(path.join(home, "brain", sessionId));
+  }
 
   const artifacts: string[] = [];
 
@@ -121,7 +133,8 @@ export async function discoverAgySessionArtifacts(sessionId: string): Promise<st
         if (entry.isDirectory()) {
           await walk(fullPath);
         } else if (entry.isFile()) {
-          artifacts.push(fullPath);
+          const real = await fs.realpath(fullPath).catch(() => fullPath);
+          artifacts.push(real);
         }
       }
     } catch {
@@ -883,7 +896,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     }
 
     if (finalResult.sessionId && !executionTargetIsRemote) {
-      const artifacts = await discoverAgySessionArtifacts(finalResult.sessionId);
+      const cliHomeDirs = [
+        runtimeEnv.ANTIGRAVITY_CLI_HOME,
+        runtimeEnv.GEMINI_CLI_HOME,
+        runtimeEnv.HOME ? path.join(runtimeEnv.HOME, ".gemini", "antigravity-cli") : null,
+      ].filter((dir): dir is string => typeof dir === "string" && dir.trim().length > 0);
+      const artifacts = await discoverAgySessionArtifacts(finalResult.sessionId, cliHomeDirs);
       if (artifacts.length > 0) {
         await onLog(
           "stdout",

@@ -138,20 +138,48 @@ export function parseAgyStdoutLine(line: string, ts: string): TranscriptEntry[] 
     const resultObj = asRecord(parsed.result);
     if (!resultObj) return [];
     const response = asString(resultObj.response);
-    const isError = asString(resultObj.status) === "ERROR";
+    const status = asString(resultObj.status);
+    let errorMessage = "";
+    for (const key of ["error", "error_message", "errorMessage", "message", "detail"]) {
+      const val = asString(resultObj[key]).trim();
+      if (val) {
+        errorMessage = val;
+        break;
+      }
+    }
+    if (!errorMessage) {
+      const nested = asRecord(resultObj.error);
+      if (nested) {
+        for (const key of ["message", "detail", "description"]) {
+          const val = asString(nested[key]).trim();
+          if (val) {
+            errorMessage = val;
+            break;
+          }
+        }
+      }
+    }
+    const isError = Boolean(
+      errorMessage ||
+        (status && status !== "SUCCESS") ||
+        status === "ERROR" ||
+        status === "CANCELLED",
+    );
+    const text = response || errorMessage;
+    const errors = isError ? [errorMessage || response || `Run ended with status ${status}`].filter(Boolean) : [];
     const usage = asRecord(resultObj.usage);
     return [
       {
         kind: "result",
         ts,
-        text: response,
+        text,
         inputTokens: asNumber(usage?.input_tokens, 0),
         outputTokens: asNumber(usage?.output_tokens, 0),
         cachedTokens: asNumber(usage?.cache_read_tokens, 0),
         costUsd: 0,
         subtype: isError ? "error" : "success",
         isError,
-        errors: isError && response ? [response] : [],
+        errors,
       },
     ];
   }
