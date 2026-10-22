@@ -852,6 +852,54 @@ describe("syncSkillsForRun and receipts", () => {
     }
   });
 
+  it("syncSkills updates symlink when skill version source path changes", async () => {
+    const tmp = await makeTempDir();
+    try {
+      const v1Source = path.join(tmp, "source-v1");
+      const v2Source = path.join(tmp, "source-v2");
+      await writeSkillSource(v1Source, "my-skill", "Version 1");
+      await writeSkillSource(v2Source, "my-skill", "Version 2");
+
+      const skillsRoot = path.join(tmp, "skills-root");
+      const agentSkillsHome = path.join(skillsRoot, AGENT_ID, ".agents", "skills");
+
+      // Initial sync with v1
+      await syncSkills(
+        {
+          agentId: AGENT_ID,
+          companyId: "c1",
+          adapterType: "agy_local",
+          config: skillConfig(
+            { "my-skill": path.join(v1Source, "my-skill") },
+            { skillsRootPath: skillsRoot, paperclipSkillSync: { desiredSkills: ["my-skill"] } },
+          ),
+        },
+        ["my-skill"],
+      );
+
+      const linkTarget = path.join(agentSkillsHome, "my-skill");
+      expect(await fs.readlink(linkTarget)).toBe(path.join(v1Source, "my-skill"));
+
+      // Second sync with v2
+      await syncSkills(
+        {
+          agentId: AGENT_ID,
+          companyId: "c1",
+          adapterType: "agy_local",
+          config: skillConfig(
+            { "my-skill": path.join(v2Source, "my-skill") },
+            { skillsRootPath: skillsRoot, paperclipSkillSync: { desiredSkills: ["my-skill"] } },
+          ),
+        },
+        ["my-skill"],
+      );
+
+      expect(await fs.readlink(linkTarget)).toBe(path.join(v2Source, "my-skill"));
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
   describe("unlinkSkillDirectory", () => {
     it("unlinks a symbolic link without affecting the target directory", async () => {
       const tmp = await makeTempDir();

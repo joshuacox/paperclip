@@ -159,22 +159,10 @@ export function adapterSupportsAiConnections(
   runnerProvider?: unknown,
   acpxAgent?: unknown,
 ): boolean {
-  if (adapterType === "paperclip_runner") {
-    adapterType =
-      runnerProvider === "claude" ||
-      (runnerProvider === "acpx" && acpxAgent === "claude")
-        ? "claude_local"
-        : runnerProvider === "acpx" && acpxAgent === "grok"
-          ? "grok_local"
-        : runnerProvider === "codex"
-          ? "codex_local"
-          : runnerProvider === "opencode"
-            ? "opencode_local"
-            : "unsupported";
-  }
+  const harness = aiRoutingHarness(adapterType, runnerProvider, acpxAgent);
   return Object.values(AI_CONNECTION_CAPABILITIES).some((capability) =>
     Object.values(capability.methods).some((method) =>
-      method?.adapters.includes(adapterType),
+      method?.adapters.includes(harness),
     ),
   );
 }

@@ -549,6 +549,15 @@ export async function syncAgySkills(
       continue;
     }
     const target = path.join(root.skillsHome, entry.runtimeName);
+    const existing = installedBefore.get(entry.runtimeName);
+    if (
+      existing?.kind === "symlink" &&
+      existing.targetPath &&
+      existing.targetPath !== entry.source &&
+      previouslyManaged[entry.runtimeName] === existing.targetPath
+    ) {
+      await unlinkSkillDirectory(target).catch(() => {});
+    }
     try {
       const outcome = await ensurePaperclipSkillSymlink(
         entry.source,

@@ -15,6 +15,7 @@ describe("adapterSupportsAiConnections", () => {
     expect(adapterSupportsAiConnections("paperclip_runner", "claude")).toBe(true);
     expect(adapterSupportsAiConnections("paperclip_runner", "acpx", "claude")).toBe(true);
     expect(adapterSupportsAiConnections("paperclip_runner", "acpx", "grok")).toBe(true);
+    expect(adapterSupportsAiConnections("paperclip_runner", "acpx", "copilot")).toBe(true);
     expect(adapterSupportsAiConnections("paperclip_runner", "codex")).toBe(true);
     expect(adapterSupportsAiConnections("paperclip_runner", "opencode")).toBe(true);
     expect(adapterSupportsAiConnections("paperclip_runner", "custom")).toBe(false);
