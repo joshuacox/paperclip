@@ -1,3 +1,4 @@
+import { freshWorkspaceSchema } from "@paperclipai/plugin-sdk";
 /**
  * Centralized environment run orchestrator.
  *
@@ -213,6 +214,7 @@ export function environmentRunOrchestrator(
     heartbeatRunId: string;
     persistedExecutionWorkspace: Pick<ExecutionWorkspace, "id" | "mode"> | null;
     executionWorkspaceSettings: IssueExecutionWorkspaceSettings | null;
+    runnerTaskProjectIds?: readonly string[];
     adapterType: string | null;
   }): Promise<EnvironmentRuntimeLeaseRecord> {
     try {
@@ -276,6 +278,7 @@ export function environmentRunOrchestrator(
     agentId: string;
     persistedExecutionWorkspace: Pick<ExecutionWorkspace, "id" | "mode"> | null;
     executionWorkspaceSettings: IssueExecutionWorkspaceSettings | null;
+    runnerTaskProjectIds?: readonly string[];
     /** Existing live runner recovery must use its original active lease, including ephemeral leases. */
     reattachRemoteLease?: { leaseId: string; providerLeaseId: string; remoteCwd: string };
     /** A new controller must stop the previous plugin task before allocating a replacement. */
@@ -316,6 +319,7 @@ export function environmentRunOrchestrator(
       heartbeatRunId: input.heartbeatRunId,
       persistedExecutionWorkspace: input.persistedExecutionWorkspace,
       executionWorkspaceSettings: input.executionWorkspaceSettings,
+      runnerTaskProjectIds: input.runnerTaskProjectIds,
       adapterType: input.adapterType ?? null,
     };
     let leaseRecord: EnvironmentRuntimeLeaseRecord;
@@ -426,6 +430,13 @@ export function environmentRunOrchestrator(
         throw new EnvironmentRunError("workspace_realization_failed", "The execution plugin cannot access this managed workspace.", { environmentId: environment.id });
       }
       const updated = await environmentsSvc.updateLeaseMetadata(lease.id, { ...lease.metadata, workspaceProvider: binding });
+      if (!updated) throw new Error("Workspace execution lease disappeared");
+      lease = updated;
+    }
+    const freshWorkspace = freshWorkspaceSchema.safeParse(persistedExecutionWorkspace?.metadata?.workspaceProviderFresh ??
+      persistedExecutionWorkspace?.metadata?.runnerTaskFreshWorkspace);
+    if (environment.driver === "plugin" && freshWorkspace.success) {
+      const updated = await environmentsSvc.updateLeaseMetadata(lease.id, { ...lease.metadata, freshWorkspace: freshWorkspace.data });
       if (!updated) throw new Error("Workspace execution lease disappeared");
       lease = updated;
     }
