@@ -553,7 +553,7 @@ describeEmbeddedPostgres("built-in agents", () => {
     const companyId = await seedCompany();
 
     const initial = await builtInAgentService(db).ensure(companyId, "summarizer");
-    expect(initial.agent?.adapterType).toBe("claude_local");
+    expect(initial.agent?.adapterType).toBe("paperclip_runner");
     await db.update(agents).set({
       runtimeConfig: {
         aiConnection: {
@@ -576,7 +576,7 @@ describeEmbeddedPostgres("built-in agents", () => {
     const companyId = await seedCompany();
 
     const initial = await builtInAgentService(db).ensure(companyId, "summarizer");
-    expect(initial.agent?.adapterType).toBe("claude_local");
+    expect(initial.agent?.adapterType).toBe("paperclip_runner");
     const poolId = randomUUID();
     await db.update(agents).set({
       runtimeConfig: {
