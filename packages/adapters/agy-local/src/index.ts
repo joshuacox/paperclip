@@ -33,9 +33,6 @@ export const SANDBOX_INSTALL_COMMAND =
   'ln -sf "$HOME/.local/bin/agy" /usr/local/bin/agy; ' +
   'elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then ' +
   'sudo ln -sf "$HOME/.local/bin/agy" /usr/local/bin/agy; ' +
-  'else ' +
-  'mkdir -p "$HOME/.local/bin" && ' +
-  'ln -sf "$HOME/.local/bin/agy" "$HOME/.local/bin/agy"; ' +
   'fi; ' +
   'fi';
 

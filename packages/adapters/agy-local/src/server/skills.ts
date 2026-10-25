@@ -454,15 +454,24 @@ export async function migrateLegacySkills(
 
     if (isExplicitlyCompanyOwned) {
       try {
-        await fs.rename(src, dest);
-        migrated.push(entry.name);
+        if (entry.isSymbolicLink()) {
+          const linkTarget = await fs.readlink(src);
+          const resolvedTarget = path.resolve(path.dirname(src), linkTarget);
+          await linkSkillDirectory(resolvedTarget, dest);
+          await unlinkSkillDirectory(src);
+          migrated.push(entry.name);
+        } else {
+          await fs.rename(src, dest);
+          migrated.push(entry.name);
+        }
       } catch (err: unknown) {
         const code = (err as { code?: string })?.code;
         if (code === "EXDEV") {
           try {
             if (entry.isSymbolicLink()) {
               const linkTarget = await fs.readlink(src);
-              await linkSkillDirectory(linkTarget, dest);
+              const resolvedTarget = path.resolve(path.dirname(src), linkTarget);
+              await linkSkillDirectory(resolvedTarget, dest);
               await unlinkSkillDirectory(src);
             } else {
               await fs.cp(src, dest, { recursive: true });

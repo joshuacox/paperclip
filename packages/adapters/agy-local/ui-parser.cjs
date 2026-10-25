@@ -124,6 +124,24 @@ function parseStepUpdateEvent(event, ts) {
       ];
     }
 
+    if (state === "ERROR") {
+      var errObj = asRecord(toolInfo.error);
+      var errMsg =
+        asTrimmed(errObj ? errObj.message : null) ||
+        asTrimmed(toolInfo.error) ||
+        "Tool execution failed";
+      return [
+        {
+          kind: "tool_result",
+          ts: ts,
+          toolUseId: id,
+          toolName: name,
+          content: errMsg,
+          isError: true,
+        },
+      ];
+    }
+
     return [
       {
         kind: "tool_call",

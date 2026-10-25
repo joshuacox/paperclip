@@ -72,6 +72,19 @@ describe("agy ui-parser contract 1.0.0", () => {
     expect(result[0].isError).toBe(true);
   });
 
+  it("handles ERROR state by returning a tool_result with isError: true", () => {
+    const result = parseStdoutLine(
+      '{"event":"step_update","step_update":{"conversation_id":"c","step_index":4,"state":"ERROR","step_type":"tool","tool_name":"run_command","tool_info":{"name":"run_command","error":"permission denied"}}}',
+      TS,
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].kind).toBe("tool_result");
+    expect(result[0].toolUseId).toBe("c:4");
+    expect(result[0].toolName).toBe("run_command");
+    expect(result[0].content).toBe("permission denied");
+    expect(result[0].isError).toBe(true);
+  });
+
   it("emits a result entry with token counts", () => {
     const entries = parseAll(SIMPLE_RUN);
     const result = entries.find((entry: any) => entry.kind === "result");
