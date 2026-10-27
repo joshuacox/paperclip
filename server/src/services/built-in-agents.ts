@@ -8,9 +8,8 @@ import { readPaperclipSkillSyncPreference, writePaperclipSkillSyncPreference } f
 import { and, desc, eq, ne } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { activityLog, agents, builtInManagedResources, companies, issueThreadInteractions, issues, routines, routineTriggers } from "@paperclipai/db";
-import { adapterSupportsAiConnections, agentHarnessType, agentRunner, aiConnectionBindingSchema, aiRuntimeConnectionBindingSchema, isAiConnectionCompatible, syncRoutineVariablesWithTemplate, type AgentRunnerChoice } from "@paperclipai/shared";
-import { DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL } from "@paperclipai/adapter-agy-local";
-import type { Agent, Approval, CompanySkill, PermissionKey, Routine, RoutineTrigger, RoutineVariable } from "@paperclipai/shared";
+import { adapterSupportsAiConnections, agentHarnessType, paperclipRunnerProfileForHarness, agentRunner, aiRuntimeConnectionBindingSchema, isAiConnectionCompatible, syncRoutineVariablesWithTemplate, type AgentRunnerChoice } from "@paperclipai/shared";
+import { DEFAULT_AGY_LOCAL_SUMMARIZER_MODEL } from "@paperclipai/adapter-agy-local";import type { Agent, Approval, CompanySkill, PermissionKey, Routine, RoutineTrigger, RoutineVariable } from "@paperclipai/shared";
 import { conflict, HttpError, notFound, unprocessable } from "../errors.js";
 import { logActivity } from "./activity-log.js";
 import { adoptAgentFiles, agentFilePath, fileHash, readAgentFile, snapshotAgentFiles } from "./agent-file-store.js";
@@ -1787,7 +1786,7 @@ export function builtInAgentService(db: Db) {
         const adapterConfig = resolvedInput.adapterConfig ?? existing.adapterConfig;
         assertAdapterAllowed(definition, adapterType, adapterConfig);
         const selectedHarness = agentHarnessType(adapterType, adapterConfig);
-        const sameQualifiedHarness = ["codex_local", "claude_local", "opencode_local", "pi_local"].includes(selectedHarness)
+        const sameQualifiedHarness = Boolean(paperclipRunnerProfileForHarness(selectedHarness))
           && agentHarnessType(existing.adapterType, existing.adapterConfig) === selectedHarness;
         const runner = resolvedInput.runner ?? (sameQualifiedHarness && existing.metadata?.paperclipBuiltInSetupRequired !== true
           ? agentRunner(existing.adapterType) : undefined);

@@ -1,5 +1,27 @@
 # Paid runner full-stack E2E
 
+The [chat scenario catalog](chat-scenarios/README.md) plans conversational
+coverage across the product using human requests, assumed context and expected
+outcomes. It shares feature-map capability IDs and belongs to this Product E2E
+family. Two entries have explicit [chat feature evals](CHAT-FEATURES.md): save a
+task without starting it, and delegate an announcement with delivery back to
+chat. Other YAML entries remain planning inventory; registration is not live
+qualification.
+
+The explicit-only `daytona-restart-continuity` suite runs the existing
+`recover-controller` journey with the recorded Codex and Claude staging models
+on fresh Daytona fixtures. After a completed task tool in an active revision
+turn, it keeps the owned development controller offline for 125 seconds, beyond
+the controller's two-minute reconnect budget. The existing independent oracle
+requires the original process, native session, sandbox lease and receipt prefix,
+one completion and successful workspace finalization, plus verified downloaded
+work. It permits one attempt per cell and retains failed evidence. This is
+development API-key acceptance, distinct from staging subscription recovery.
+
+The explicit-only [GitHub review bot journey](GITHUB-REVIEW-JOURNEY.md) tests
+attended bot setup and an automatic PR review against an attached deployment.
+Private account bindings and setup receipts live in the private eval repository.
+
 ## Dependable-work qualification checkpoint
 
 `dependable-qualification.ts` defines the six everyday journeys across Codie
@@ -71,8 +93,10 @@ hard stops. The conversion journey creates a real legacy agent and selects
 Paperclip Runner through the public agent update API. It checks retained
 configuration, encrypted secret references, environment, instructions, and
 corresponding permission policy before submitting work through the browser.
-The disposable legacy profile starts without optional CLI-only extra arguments or turn limits;
-the journey does not remove settings from an existing user agent. For either
+The disposable legacy profile starts without optional CLI-only extra arguments.
+Claude retains its saved `maxTurnsPerRun: 1000` to verify that conversion ignores
+the obsolete option without blocking the task. The journey does not remove
+settings from an existing user agent. For either
 provider, Daytona's public environment probe must save platform qualification
 before the same agent selects Runner. Probe leases and uncertain probe accounting
 remain included in attempt evidence and cleanup.
@@ -231,6 +255,21 @@ The explicit [deployment-targeted Product journeys](PRODUCT-JOURNEYS.md) reuse
 browser actions across managed self-hosted and Cloud targets. They include a
 model-free task-properties story, fresh Cloud onboarding, credential-free
 previews, private evidence, and prerequisite reuse; `--all` is unchanged.
+Cloud onboarding may retain a versioned `onboardingConnect` receipt for the
+Connect action: its last checkpoint, validation/hire response state and HTTP
+status, known adapters, and allowlisted outcome/check/server codes. The case
+report renders these fields explicitly; older results without the receipt remain
+valid. This diagnostic does not change the journey grade or qualify a live run.
+
+When the canonical first-task journey fails `onboarding_work_before_acceptance`,
+`productJourney.onboardingPreAcceptance` retains the failed checkpoint and every
+observed guard violation: unexpected task set, existing attachment, non-planning
+document, or first task already Done. The closed version-1 receipt contains only
+counts, whether the first task matches the canonical parent, and closed first-task
+and canonical-parent statuses. Reports validate and display these observations;
+they do not infer a product cause. Only the failing boundary is retained, without
+task/document IDs, document keys, text, or bodies. Historical results may omit the
+receipt. The original error, failed grade, and dependent blocked outcomes remain.
 
 ## Live provider connection journeys
 
@@ -2837,6 +2876,19 @@ The caller supplies an explicit campaign ceiling, deadline, request count, and
 concurrency. Monetary decisions use integer nanodollars. Model list prices remain
 estimates with a pinned version; they do not become provider invoices.
 
+A versioned pricecard may declare `responseModels`, a list of one to sixteen
+additional exact response model identities with the same reviewed rates. Request
+admission still requires the exact `model`; the list only permits those response
+identities for usage estimates and reviewed reservation bounds. Entries must be
+unique, valid ledger identities and distinct from `model`. No prefix matching or
+date removal is performed. Add or change mappings only with a new price version
+and verified provider provenance. The reviewed bound digest includes the mapping;
+changing it invalidates old bound evidence. An unlisted response remains unpriced
+and disqualifies the bound. Historical receipts and ledgers remain unchanged.
+The existing supported request cache policy also uses that exact mapping when
+the pricecard provider and request model match. It does not repair missing write
+counters, malformed TTL details or an unqualified cache policy.
+
 The journal retains setup/agent/judge/tool/infrastructure attribution separately
 from heartbeat IDs. Multiple sources for the same request are retained but only
 one cost contributes to the total: reconciled, reported, estimated, then allocated.
@@ -2941,3 +2993,22 @@ quality or survival after an abrupt worker kill.
 pnpm test:e2e:runner -- --list --suite feedback-persistence
 pnpm test:e2e:runner -- --id feedback-persistence.runner-acpx-claude.local.complaint-and-suggestion --max-automatic-retries 0 --max-parallel 1
 ```
+
+
+### Model-spend readiness and operating reconciliation
+
+A reviewed operating allowance can opt into `accountingReadiness: "model_requests"`.
+This policy requires at least one model request and complete final model-cost
+receipts before scheduled qualification succeeds. Missing or conflicting model
+receipts, active requests, failed product/cleanup/trace/feedback checks, and a
+campaign commitment above its limit still fail qualification. The gateway still
+reserves every request before forwarding it. Attempts, deadlines and concurrency
+remain bounded.
+
+The report shows the model subtotal and model-readiness status separately from
+full accounting status. Unknown operating charges remain unknown. Operating
+reservations stay in the same campaign admission allowance until reconciled;
+they are not reported as charges or converted into reviewed lifecycle bounds.
+This mode therefore does not certify a full-lifecycle operating-cost ceiling.
+Omitting the policy preserves the stricter full-accounting gate. Historical
+journals and their holds are not rewritten by changing future campaign policy.

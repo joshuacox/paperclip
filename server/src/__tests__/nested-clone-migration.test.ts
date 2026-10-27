@@ -14,7 +14,7 @@ import { realizeExecutionWorkspace } from "../services/workspace-runtime.js";
 import { executionWorkspaceService } from "../services/execution-workspaces.js";
 import { prepareProjectRepositoryWorkspaces } from "../services/heartbeat/workspaces.js";
 import { expireReconstructableGitWorkspace } from "../services/git-workspace-expiration.js";
-import { currentRestorePointSnapshot } from "../services/git-restore-point.js";
+import { currentRestorePointSnapshot, restorePointHistoryDigest } from "../services/git-restore-point.js";
 import { nestedRepositoryBaseCandidates, nestedWorktreeBranchPrefix, readLinkedNestedCheckout, withNestedRepositoryBaseLock } from "../services/nested-repository-worktrees.js";
 import { listNestedCloneMigrationNames, migrateNestedRepositoryClone, nextNestedCloneMigrationBatch, type NestedCloneMigrationOptions } from "../services/nested-clone-migration.js";
 import { getStorageService } from "../storage/index.js";
@@ -223,6 +223,41 @@ describeEmbeddedPostgres("nested repository clone migration", () => {
     expect(await f.migrate()).toMatchObject({ outcome: "migrated" });
     expect(git(f.base, "rev-parse", `refs/heads/${f.prefix}remotes/origin/squashed-away`)).toBe(feature);
     expect(git(f.checkout, "cat-file", "-t", feature)).toBe("commit");
+  });
+
+  it("expires a converted checkout whose only extra history is remote-tracking and restores that history", async () => {
+    const f = await fixture({ issueStatus: "done" });
+    git(f.nested.author, "checkout", "-q", "-b", "squashed-away");
+    await fs.writeFile(path.join(f.nested.author, "feature.txt"), "feature\n");
+    git(f.nested.author, "add", "."); git(f.nested.author, "commit", "-qm", "Feature");
+    const feature = git(f.nested.author, "rev-parse", "HEAD");
+    git(f.nested.author, "push", "-q", f.nested.remote, "squashed-away");
+    git(f.checkout, "fetch", "-q", "origin");
+    git(f.nested.remote, "branch", "-D", "squashed-away");
+    git(f.nested.remote, "reflog", "expire", "--expire=now", "--all");
+    git(f.nested.remote, "gc", "-q", "--prune=now");
+    expect(await f.migrate()).toMatchObject({ outcome: "migrated" });
+
+    expect(await f.expire()).toMatchObject({ expired: true, restorePoint: true, skipReason: null });
+    for (const line of ownedRefs(f.base, f.prefix).split("\n").filter(Boolean)) git(f.base, "update-ref", "-d", line.split(" ")[0]!);
+    git(f.base, "reflog", "expire", "--expire=now", "--all");
+    git(f.base, "gc", "-q", "--prune=now");
+    expect(() => git(f.base, "cat-file", "-e", `${feature}^{commit}`)).toThrow();
+    expect(await f.reopen()).toMatchObject({ ok: true, reopened: true });
+    expect(git(f.checkout, "cat-file", "-t", feature)).toBe("commit");
+  });
+
+  it("fingerprints a converted checkout's own history rather than the shared clone's remote refs", async () => {
+    const f = await fixture();
+    expect(await f.migrate()).toMatchObject({ outcome: "migrated" });
+    const head = git(f.checkout, "rev-parse", "HEAD");
+    const before = await restorePointHistoryDigest(f.checkout);
+    git(f.base, "update-ref", "refs/remotes/origin/another-task", head);
+    expect(await restorePointHistoryDigest(f.checkout)).toBe(before);
+    git(f.base, "update-ref", `refs/heads/${f.prefix}remotes/origin/extra`, head);
+    expect(await restorePointHistoryDigest(f.checkout)).not.toBe(before);
+    for (let index = 0; index < 64; index++) git(f.base, "update-ref", `refs/heads/${f.prefix}remotes/origin/bulk-${index}`, head);
+    await expect(restorePointHistoryDigest(f.checkout)).rejects.toThrow("managed_checkout_local_tip_budget");
   });
 
   it("finishes an interrupted conversion after the workspace is archived and forgets one whose workspace is gone", async () => {

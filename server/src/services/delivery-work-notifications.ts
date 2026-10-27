@@ -3,10 +3,26 @@ import { signalDatabaseWork, subscribeDatabaseWork } from "@paperclipai/db";
 /** Topics for existing durable queues; register intent before their writes. */
 export const DELIVERY_QUEUES = {
   executionFinalization: "execution-finalization",
+  workspaceRecovery: "workspace-recovery",
   executionReplacement: "execution-replacement",
   executionContinuation: "execution-continuation",
   executionStatus: "execution-status",
   executionDisposition: "execution-disposition",
+  environmentCleanup: "environment-cleanup",
+  decisionEffectRecovery: "decision-effect-recovery",
+  decisionExpiry: "decision-expiry",
+  decisionContinuation: "decision-continuation",
+
+  decisionArchiveDelivery: "decision-archive-delivery",
+
+  toolReviewProjection: "tool-review-projection",
+  toolReviewInterruption: "tool-review-interruption",
+  toolReviewRecovery: "tool-review-recovery",
+  toolReviewExpiry: "tool-review-expiry",
+  gatewayCredentialExpiry: "gateway-credential-expiry",
+  secretProposalExpiry: "secret-proposal-expiry",
+  customImageExpiry: "custom-image-expiry",
+  historicalCleanup: "historical-cleanup",
   adapterLoginCleanup: "adapter-login-cleanup",
   setupTokenCleanup: "setup-token-cleanup",
   localLoginCleanup: "local-login-cleanup",

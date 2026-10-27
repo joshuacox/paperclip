@@ -1,3 +1,4 @@
+import { writeToolReviewChange } from "./tool-review-work-notifications.js";
 import { approvalResolutionRecords, resolvableApprovalStatuses as resolvableStatuses } from "../lib/approval-records.js";
 import { notifyHireApproved } from "./hire-hook.js";
 
@@ -12,7 +13,15 @@ import { instanceSettingsService } from "./instance-settings.js";
 
 export function approvalRecords(db: Db) {
   const instanceSettings = instanceSettingsService(db);
-  const { getExistingApproval, resolveApproval } = approvalResolutionRecords(db);
+  const { getExistingApproval, resolveApproval: resolveApprovalRecord } = approvalResolutionRecords(db);
+
+  // Tool reviews waiting for a formal decision stay parked until this producer
+  // commits. The shared record owner retains approval validation and CAS rules.
+  async function resolveApproval(id: string, status: "approved" | "rejected", userId: string,
+    note: string | null | undefined, database: Db = db) {
+    const existing = await getExistingApproval(id, database);
+    return writeToolReviewChange(database, existing.companyId, tx => resolveApprovalRecord(id, status, userId, note, tx));
+  }
 
   function redactApprovalComment<T extends { body: string }>(comment: T, censorUsernameInLogs: boolean): T {
     return {
@@ -64,7 +73,9 @@ export function approvalRecords(db: Db) {
     // cleanup. Idempotent: a no-op on already-resolved approvals.
     cancel: async (id: string, reason?: string | null) => {
       const now = new Date();
-      const updated = await db
+      const [existing] = await db.select({ companyId: approvals.companyId }).from(approvals).where(eq(approvals.id, id));
+      if (!existing) return null;
+      const updated = await writeToolReviewChange(db, existing.companyId, tx => tx
         .update(approvals)
         .set({
           status: "cancelled",
@@ -74,7 +85,7 @@ export function approvalRecords(db: Db) {
         })
         .where(and(eq(approvals.id, id), inArray(approvals.status, resolvableStatuses)))
         .returning()
-        .then((rows) => rows[0] ?? null);
+        .then((rows) => rows[0] ?? null));
       return updated;
     },
 

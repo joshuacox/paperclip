@@ -15,6 +15,31 @@ const everydayOracleImage =
   "python@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285";
 
 describe("public repository paid workflow security", () => {
+  it("exposes Copilot only to selected cells in the protected, reauthorized paid jobs", async () => {
+    for (const [filename, jobName, nextJobName, stepName] of [
+      ["runner-full-stack-e2e.yml", "test", "report", "Run paid cell"],
+      ["runner-protocol-live-evals.yml", "eval_shard_0", "eval_shard_1", "Run one immutable direct protocol cell"],
+    ] as const) {
+      const workflow = await readFile(path.join(repositoryRoot, ".github/workflows", filename), "utf8");
+      const credentialSteps = workflow.split(/\n(?= {6}- )/u).filter(step => step.includes("secrets.COPILOT_GITHUB_TOKEN"));
+      expect(credentialSteps, filename).toHaveLength(1);
+      const credentialStep = credentialSteps[0]!;
+      expect(credentialStep, filename).toContain(`name: ${stepName}`);
+      expect(credentialStep, filename).toContain("COPILOT_GITHUB_TOKEN: ${{ matrix.credentialName == 'COPILOT_GITHUB_TOKEN' && secrets.COPILOT_GITHUB_TOKEN || '' }}");
+      const jobStart = workflow.indexOf(`\n  ${jobName}:`);
+      const jobEnd = workflow.indexOf(`\n  ${nextJobName}:`, jobStart + 1);
+      expect(jobStart, filename).toBeGreaterThanOrEqual(0);
+      expect(jobEnd, filename).toBeGreaterThan(jobStart);
+      const paidJob = workflow.slice(jobStart, jobEnd);
+      expect(paidJob, filename).toContain(filename === "runner-protocol-live-evals.yml"
+        ? "'runner-e2e-private-paid' || 'runner-e2e-paid'" : "name: runner-e2e-paid");
+      expect(paidJob, filename).toContain(credentialStep);
+      const reauthorizationIndex = paidJob.indexOf("Reauthorize paid execution before provider access");
+      expect(reauthorizationIndex, filename).toBeGreaterThanOrEqual(0);
+      expect(reauthorizationIndex, filename).toBeLessThan(paidJob.indexOf("secrets.COPILOT_GITHUB_TOKEN"));
+    }
+  });
+
   it("keeps the manual hosted Linux image build credential-free and pins the authorized target", async () => {
     const workflow = await readFile(path.join(repositoryRoot, ".github/workflows/docker-runner-check.yml"), "utf8");
     const manual = workflow.slice(workflow.indexOf("  authorize_manual:"));
@@ -188,7 +213,8 @@ describe("public repository paid workflow security", () => {
       expect(contents).toContain("github.triggering_actor");
       expect(contents).toContain("refs/heads/$DEFAULT_BRANCH");
       expect(contents).toContain("needs: authorize");
-      expect(contents).toContain("name: runner-e2e-paid");
+      expect(contents).toContain(name === "runner-protocol-live-evals.yml"
+        ? "'runner-e2e-private-paid' || 'runner-e2e-paid'" : "name: runner-e2e-paid");
       expect(contents).not.toMatch(
         /^\s*(?:pull_request|pull_request_target|push|workflow_call|workflow_run):/m,
       );
@@ -549,6 +575,7 @@ describe("public repository paid workflow security", () => {
       OPENROUTER_API_KEY: "matrix.credentialName == 'OPENROUTER_API_KEY'",
       XAI_API_KEY: "matrix.credentialName == 'XAI_API_KEY'",
       GROK_AUTH_JSON: "matrix.credentialName == 'GROK_AUTH_JSON'",
+      COPILOT_GITHUB_TOKEN: "matrix.credentialName == 'COPILOT_GITHUB_TOKEN'",
       DAYTONA_API_KEY: "matrix.environmentId == 'daytona'",
     })) {
       expect(fullStack).toContain(
@@ -576,7 +603,7 @@ describe("public repository paid workflow security", () => {
       );
       const providerSecretReferences = [
         ...contents.matchAll(
-          /secrets(?:\.(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|OPENROUTER_API_KEY|XAI_API_KEY|GROK_AUTH_JSON|DAYTONA_API_KEY)\b|\[['"](?:OPENAI_API_KEY|ANTHROPIC_API_KEY|OPENROUTER_API_KEY|XAI_API_KEY|GROK_AUTH_JSON|DAYTONA_API_KEY)['"]\])/g,
+          /secrets(?:\.(?:OPENAI_API_KEY|ANTHROPIC_API_KEY|OPENROUTER_API_KEY|XAI_API_KEY|GROK_AUTH_JSON|DAYTONA_API_KEY|COPILOT_GITHUB_TOKEN)\b|\[['"](?:OPENAI_API_KEY|ANTHROPIC_API_KEY|OPENROUTER_API_KEY|XAI_API_KEY|GROK_AUTH_JSON|DAYTONA_API_KEY|COPILOT_GITHUB_TOKEN)['"]\])/g,
         ),
       ];
       if (providerSecretReferences.length > 0) {
@@ -847,13 +874,17 @@ describe("public repository paid workflow security", () => {
     }
     expect(recurring).toContain("needs.authorize.outputs.target_sha == github.sha");
     for (const filename of await readdir(workflows)) {
-      if (!/\.ya?ml$/u.test(filename) || filename === "runner-full-stack-e2e.yml") continue;
+      if (!/\.ya?ml$/u.test(filename) || ["runner-full-stack-e2e.yml", "runner-protocol-live-evals.yml"].includes(filename)) continue;
       const other = await readFile(path.join(workflows, filename), "utf8");
       for (const environment of environments) expect(other, filename).not.toContain(environment);
     }
     const protocol = await readFile(path.join(workflows, "runner-protocol-live-evals.yml"), "utf8");
-    expect(protocol).toContain("name: runner-e2e-paid");
-    expect(protocol).toContain("needs.authorize.outputs.target_sha");
+    expect(protocol).toContain("'runner-e2e-private-paid' || 'runner-e2e-paid'");
+    const admission = protocol.split("      - name: Validate accounting mode and retry envelope")[1]!.split("      - name:")[0]!;
+    expect(admission).toContain('test "$TARGET_SHA" = "$GITHUB_SHA"');
+    const worker = protocol.split("    steps: &direct_eval_steps")[1]!.split("      - uses:")[0]!;
+    expect(worker).toContain("test '${{ needs.authorize.outputs.target_sha }}' = \"$GITHUB_SHA\"");
+    expect(worker).toContain('test "$GITHUB_RUN_ATTEMPT" = 1');
   });
 
   it("uses environment-scoped OIDC for a no-delete history publisher", async () => {
@@ -916,4 +947,24 @@ describe("public repository paid workflow security", () => {
       for (const install of installs) expect(install[0]).toContain('--store-dir "${{ runner.temp }}/eval-');
     }
   });
+});
+
+it("keeps dependency resolution and shared caches out of Runner protocol archive jobs", async () => {
+  const workflow = await readFile(path.join(repositoryRoot, ".github/workflows/runner-protocol-live-evals.yml"), "utf8");
+  const jobs = workflow.split(/\n(?=  [A-Za-z0-9_]+:)/u);
+  const privileged = jobs.filter(job => job.includes("id-token: write"));
+  expect(privileged.length).toBeGreaterThanOrEqual(4);
+  for (const job of privileged) {
+    expect(job).not.toMatch(/--no-frozen-lockfile|cache:\s*(?:pnpm|npm|yarn)|actions\/cache/u);
+    for (const install of job.matchAll(/pnpm install[^\n]*/gu)) {
+      expect(install[0]).toContain("--frozen-lockfile");
+      expect(install[0]).toContain("--ignore-scripts");
+      expect(install[0]).toContain("--store-dir");
+    }
+  }
+  const builder = jobs.find(job => job.startsWith("  build_controller:"))!;
+  expect(builder).not.toMatch(/id-token: write|environment:|secrets\./u);
+  const preparer = jobs.find(job => job.startsWith("  prepare_controller:"))!;
+  expect(preparer).not.toMatch(/pnpm install/u);
+  expect(preparer.indexOf("verify-runtime.mjs")).toBeLessThan(preparer.indexOf('hosted.mjs" prepare'));
 });
