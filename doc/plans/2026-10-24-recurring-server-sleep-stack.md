@@ -1557,6 +1557,38 @@ fixture failures and local full-suite infrastructure limitations. Publication an
 latest-head review/check acceptance remain outstanding. Inbound admission cleanup,
 inbound history retention, and call reports remain separate next slices.
 
+Voice reply delivery is [#17578](https://github.com/paperclipai/paperclip/pull/17578),
+head 439d0a86eb75c129c30742a8cc24bf18e2a6ebf3, stacked on #17576. Local selected
+checks pass; remote acceptance is pending. Slice 23 starts the inbound admission
+cleanup audit in `2026-10-25-voice-inbound-cleanup-sleep-audit.md`. It explicitly
+separates retention and reports and requires proof of approval/cleanup handoff,
+termination confirmation, and protection against deleting unfinished cleanup.
+
+
+Voice reply review repairs are published at #17578 head `90caaf3fa9`: shared scoped
+worker, actual authority-restoration wiring regression, 191 overlapping selected
+consumer tests and workspace types/build passing. Removing the real notification
+reproduces the lost reply. Both review threads are resolved; fresh CI/review remain.
+
+Inbound cleanup slice 23 now makes approval/session handoff atomic, after a real
+expiry regression reproduced termination of an already authorized call. All 110
+voice integration cases and server typechecking pass. This slice is not published:
+locked cleanup claims, legacy handoff recovery, bound-guest ownership, termination
+confirmation, retention protection and scheduler/producer migration remain required.
+The full original inventory, older #17490 E2E failure, and stack/master reconciliation
+remain outstanding. No stack PR has been merged by this work.
+
+
+Slice 23 inbound cleanup now uses committed admission/session changes and actual
+expiry/retry deadlines. The admission row separately records physical confirmation
+and saved provider account. Locked claims, legacy handoff repair, bound-call owner
+handoff, retention/deletion protection and safe same-account rotation are verified.
+All 205 selected tests, workspace types and build pass; publication and remote
+acceptance remain pending. History retention and call reports remain separate next
+slices. Parent #17578 at 90caaf3fa9 has no pending/failed checks and exact-head
+Greptile 5/5; the second Paperclip reviewer stopped before completion. The original
+remaining inventory, #17490 E2E failure and final reconciliation remain in scope.
+
 ## Acceptance follow-up after the plugin parent merged (October 27)
 
 Eighteen preceding sleep PRs are merged through plugin scheduling #17518 at
@@ -1658,3 +1690,16 @@ budget after repair. The [reply audit](2026-10-25-voice-reply-delivery-sleep-aud
 records restart, denial-cursor and guarded-mutation coverage. All 449 current
 targeted cases, server typecheck/build and the policy check pass on parent
 `ad79c7e805`. Fresh exact-head review, CI and parent landing remain required.
+
+
+## Inbound cleanup current-parent acceptance, October 28
+
+Inbound cleanup #17580 now includes reply parent `d2c0a7de8c` and uses its existing
+paged worker contract. Startup yields after 100 rows per scope refresh, and a
+same-owner restart reconstructs all 105 saved fixture deadlines. Migration 0395
+was generated on the parent's 0394 lineage, preserves all historical SQL/journal
+entries, and commits historical backfill in batches of at most 1,000. The
+[inbound cleanup audit](2026-10-25-voice-inbound-cleanup-sleep-audit.md#current-parent-acceptance-and-bounded-discovery-october-28)
+records 266 passing cases, negative probes, migration lineage, preserved failures,
+and limits. Exact-head review, CI, and the preceding stack still must pass before
+landing. History retention and call reports remain separate duties.

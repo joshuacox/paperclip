@@ -230,7 +230,7 @@ export function voiceSessionService(db: Db, options: {
     return registerVoiceReplyWork(coordinator, replies, canRun);
   }
   async function reconcileMaintenance(limit = 25) {
-    await inbound.reconcile(limit);
+    await inbound.pruneHistory();
     await reconcileReports(limit);
   }
   /** Explicit one-shot recovery for diagnostics/tests; never register on a recurring lane. */
@@ -238,7 +238,8 @@ export function voiceSessionService(db: Db, options: {
     const due = (await recovery.load()).filter(row => row.dueAt <= Date.now()).sort((a, b) => a.dueAt - b.dueAt || a.id.localeCompare(b.id)).slice(0, limit);
     for (const row of due) await recovery.check(row.id).catch(() => undefined);
     await pushReplies(limit);
-    await reconcileMaintenance(limit);
+    await inbound.reconcile(limit);
+    await reconcileReports(limit);
     return due.length;
   }
   async function pushReplies(limit = 25, companyId?: string, endpointId?: string) {
