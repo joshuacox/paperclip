@@ -1,4 +1,4 @@
-import type { RunLogChunk } from "../adapters";
+import type { RunLogChunk, TranscriptEntry } from "../adapters";
 
 /**
  * Streaming-summary output protocol parser (see the `summarize-status` skill).
@@ -46,6 +46,12 @@ const EMPTY_PARSE: SummaryDraftParse = {
  * Only `acpx.text_delta` records on the output channel carry the STATUS lines
  * and sentinel-wrapped draft; thought-channel deltas and tool-call records are
  * ignored. Chunks are assumed to already be in emit order.
+ *
+ * This is the fallback for runs whose adapter is not known yet (or whose
+ * adapter has no registered UI parser). Provider-specific stdout must NOT be
+ * parsed here: the run adapter's own stdout parser normalizes it into
+ * transcript entries, and callers consume those via
+ * {@link extractAssistantTextFromEntries} instead.
  */
 export function extractAssistantOutputText(chunks: RunLogChunk[]): string {
   let text = "";
@@ -56,16 +62,22 @@ export function extractAssistantOutputText(chunks: RunLogChunk[]): string {
       const channel = typeof record.channel === "string" ? record.channel : "output";
       if (channel === "thought" || channel === "thinking") continue;
       if (typeof record.text === "string") text += record.text;
-    } else if (
-      record.event === "step_update" &&
-      typeof record.step_update === "object" &&
-      record.step_update !== null
-    ) {
-      const step = record.step_update as Record<string, unknown>;
-      if (step.step_type === "agent_response" && typeof step.text_delta === "string") {
-        text += step.text_delta;
-      }
     }
+  }
+  return text;
+}
+
+/**
+ * Extract assistant prose from normalized transcript entries, as produced by
+ * the run adapter's stdout parser (e.g. Antigravity `step_update`
+ * `agent_response` deltas arrive here as `assistant` entries). Thinking,
+ * tool, and other entry kinds are ignored. Entries are assumed to already be
+ * in emit order, with consecutive deltas coalesced by the transcript builder.
+ */
+export function extractAssistantTextFromEntries(entries: TranscriptEntry[]): string {
+  let text = "";
+  for (const entry of entries) {
+    if (entry.kind === "assistant" && typeof entry.text === "string") text += entry.text;
   }
   return text;
 }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { RunLogChunk } from "../adapters";
+import type { RunLogChunk, TranscriptEntry } from "../adapters";
 import {
   closeDanglingCodeFence,
   extractAssistantOutputText,
+  extractAssistantTextFromEntries,
   parseSummaryDraftStream,
 } from "./summary-draft-stream";
 
@@ -40,7 +41,7 @@ describe("extractAssistantOutputText", () => {
     expect(extractAssistantOutputText(chunks)).toBe("visible text");
   });
 
-  it("concatenates agy step_update agent_response text deltas in order", () => {
+  it("ignores provider-specific step_update records: they belong to the adapter parser", () => {
     const chunks: RunLogChunk[] = [
       {
         ts: "2026-10-04T00:00:00.000Z",
@@ -50,24 +51,21 @@ describe("extractAssistantOutputText", () => {
           step_update: { step_type: "agent_response", text_delta: "STATUS: considering issues...\n" },
         }),
       },
-      {
-        ts: "2026-10-04T00:00:01.000Z",
-        stream: "stdout",
-        chunk: JSON.stringify({
-          event: "step_update",
-          step_update: { step_type: "tool", tool_name: "run_command" },
-        }),
-      },
-      {
-        ts: "2026-10-04T00:00:02.000Z",
-        stream: "stdout",
-        chunk: JSON.stringify({
-          event: "step_update",
-          step_update: { step_type: "agent_response", text_delta: "<<<SUMMARY-DRAFT>>>\nDraft\n<<<END-SUMMARY-DRAFT>>>" },
-        }),
-      },
     ];
-    const extracted = extractAssistantOutputText(chunks);
+    expect(extractAssistantOutputText(chunks)).toBe("");
+  });
+});
+
+describe("extractAssistantTextFromEntries", () => {
+  it("concatenates assistant entries in order and ignores other kinds", () => {
+    const entries: TranscriptEntry[] = [
+      { kind: "thinking", ts: "t0", text: "secret" },
+      { kind: "assistant", ts: "t1", text: "STATUS: considering issues...\n" },
+      { kind: "tool_call", ts: "t2", name: "run_command", toolUseId: "1", input: {} },
+      { kind: "assistant", ts: "t3", text: "<<<SUMMARY-DRAFT>>>\nDraft\n<<<END-SUMMARY-DRAFT>>>" },
+      { kind: "tool_result", ts: "t4", toolUseId: "1", content: "done", isError: false },
+    ];
+    const extracted = extractAssistantTextFromEntries(entries);
     expect(extracted).toBe("STATUS: considering issues...\n<<<SUMMARY-DRAFT>>>\nDraft\n<<<END-SUMMARY-DRAFT>>>");
     const parsed = parseSummaryDraftStream(extracted);
     expect(parsed.statusLine).toBe("considering issues...");
