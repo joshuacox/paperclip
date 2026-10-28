@@ -34878,7 +34878,12 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
       await expect.poll(async () => db.select({ status: chatActions.status }).from(chatActions)
         .where(and(eq(chatActions.endpointId, lane.endpoint.id), eq(chatActions.kind, "slack_session_sync"))),
         { timeout: 10_000 }).toEqual([{ status: "processed" }]);
-      await vi.waitFor(() => expect(coordinator.nextWakeAt()).toBeNull(), { timeout: 10_000 });
+      // A running worker has no scheduled deadline. Wait for its final scan
+      // and any commit-driven follow-up before measuring the quiet period.
+      await vi.waitFor(() => {
+        expect(coordinator.nextWakeAt()).toBeNull();
+        expect(idleWorkSnapshot().active).toBe(0);
+      }, { timeout: 10_000 });
       const scans = vi.spyOn(db, "select");
       try {
         await new Promise(resolve => setTimeout(resolve, 1200));
@@ -35006,7 +35011,12 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
     try {
       const [stale] = await db.insert(chatActions).values(action("receipt_reaction")).returning();
       await registerChatActionWork(coordinator, f.service, () => true).ready;
-      await vi.waitFor(() => expect(coordinator.nextWakeAt()).toBeNull(), { timeout: 10_000 });
+      // A running worker has no scheduled deadline. Wait for its final scan
+      // and any commit-driven follow-up before measuring the quiet period.
+      await vi.waitFor(() => {
+        expect(coordinator.nextWakeAt()).toBeNull();
+        expect(idleWorkSnapshot().active).toBe(0);
+      }, { timeout: 10_000 });
       expect((await readChatActionsById(stale!.id))[0]?.status).toBe("failed");
       const scans = vi.spyOn(db, "select");
       try {
