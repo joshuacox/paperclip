@@ -149,6 +149,12 @@ startup hooks, or user homes into this route. Unsupported harnesses and
 mismatched descriptor identities fail before provider creation. The temporary
 home is removed on success and failure.
 
+The controlled wrapper forwards the bounded `--expected-acpx-profile` JSON
+argument to the same built CLI. Eval definitions pass it for qualified ACPX
+lanes as well as candidates, so stale SDK or command pins fail before a paid
+turn rather than only during scoring. A rejected profile never falls back to
+an invocation without the admission check.
+
 Success and failure artifacts retain `requestRouting`: controller gateway mode,
 provider, declared upstream route, campaign/execution/attempt IDs, and the
 SHA-256 of the descriptor bytes. The token and endpoint are excluded from this
@@ -952,3 +958,9 @@ For this policy version, `operatingReconciliation` is always `pending`; the
 immutable controller summary has no operating invoice settlement step. Mixed
 histories retain that warning when any campaign uses the policy. A shared
 `accountingReadiness` label appears only when every campaign uses it.
+
+
+The trusted controller artifact preserves hidden dependency metadata as well as
+code. Its inventory verifier requires every recorded byte, including package
+`.npmignore` files. Only the fresh provider-credential-free controller build uses
+this upload setting; private attempts still use the protected archive path.

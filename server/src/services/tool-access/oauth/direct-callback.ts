@@ -1,3 +1,4 @@
+import { notifyToolConnectionHealth } from "../../tool-connection-health-notifications.js";
 import { credentialScope } from "./client-settings.js";
 import { withoutOAuthRefreshLease } from "./refresh-leases.js";
 import type { ActorInfo } from "../types.js";
@@ -332,6 +333,7 @@ export function createDirectOAuthCallback(db: Db, dependencies: Dependencies) {
             },
           },
         };
+        await notifyToolConnectionHealth(tx, connection);
         const [updatedConnection] = await tx
           .update(toolConnections)
           .set({
@@ -611,6 +613,7 @@ export function createDirectOAuthCallback(db: Db, dependencies: Dependencies) {
           },
         },
       };
+      await notifyToolConnectionHealth(tx, connection);
       const [updatedConnection] = await tx
         .update(toolConnections)
         .set({

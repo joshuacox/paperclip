@@ -253,6 +253,21 @@ describe("runner E2E catalog", () => {
     ).toEqual({ local: 8 * 60_000, daytona: 12 * 60_000 });
   });
 
+  it("bounds ephemeral Daytona lifetime beyond each declared attempt and acquire budget", () => {
+    const environment = runnerEnvironments.find(entry => entry.id === "daytona")!;
+    const payload = environment.buildEnvironment({
+      executionId: "bounded-lifetime", daytonaImage: `runner@sha256:${"a".repeat(64)}`,
+      secretRefs: { DAYTONA_API_KEY: { type: "secret_ref", secretId: "22222222-2222-4222-8222-222222222222", version: "latest" } },
+    });
+    const lifetimeMs = Number(payload.config?.ttlMinutes) * 60_000;
+    expect(Number.isFinite(lifetimeMs)).toBe(true);
+    const cells = runnerMatrix.filter(entry => entry.environment === environment);
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      expect(lifetimeMs, cell.id).toBeGreaterThan(cell.task.attemptTimeoutMs.daytona + Number(payload.config?.timeoutMs));
+    }
+  });
+
   it("defines the warm Daytona continuity fixture as exactly two Codex cells", () => {
     expect(daytonaWarmEnvironment).toMatchObject({
       id: "daytona",

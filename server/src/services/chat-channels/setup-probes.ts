@@ -1,3 +1,4 @@
+import { notifyChatConnectionHealth } from "./connection-health-notifications.js";
 import type { ConnectionManagementContext } from "../connection-management.js";
 import type { EndpointRow, DbOrTransaction } from "./runtime-types.js";
 
@@ -329,6 +330,7 @@ export function createSetupProbes(db: Db, options: SetupProbesOptions) {
               code: "chat_endpoint_test_superseded",
             });
           }
+          await notifyChatConnectionHealth(tx, endpoint);
           await tx
             .update(toolConnections)
             .set({

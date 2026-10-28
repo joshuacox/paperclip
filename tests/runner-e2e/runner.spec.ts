@@ -2,6 +2,7 @@ import { createWorkerTiming } from "./worker-timing.js";
 import { FEEDBACK_PERSISTENCE_SUITE, gradeFeedbackPersistence } from "./feedback-persistence.js";
 import { EvalAttemptTrace, evalBraintrustConfig, EVAL_OBSERVABILITY_SECRET_NAMES } from "./braintrust.js";
 import { captureFollowupStopFailureApiState } from "./followup-stop-evidence.js";
+import { controllerOutageForExecution, validControllerOutageReceipt, type ControllerOutage, type ControllerOutageReceipt } from "./controller-outage.js";
 import { runFollowupStopResumeFlow } from "./followup-stop-resume-flow.js";
 import { runFinalizationRecoveryFlow } from "./finalization-recovery-flow.js";
 import type { FinalizationCrashBinding } from "./finalization-crash-boundary.js";
@@ -263,8 +264,12 @@ async function restartIsolatedPaperclipServer(input: {
   requestId: string;
   deadlineAt: number;
   preserveRunner?: RestartRunnerIdentity;
+  discardControllerCache?: boolean;
   crashAfterResult?: FinalizationCrashBinding;
   controllerDowntimeMs?: number;
+  controllerOutage?: ControllerOutage;
+  recoveryBinding?: import("./controller-recovery-observer.js").RecoveryBinding;
+  onControllerOutage?: (receipt: ControllerOutageReceipt) => Promise<void>;
 }): Promise<void> {
   const {
     controlDirectory,
@@ -275,14 +280,16 @@ async function restartIsolatedPaperclipServer(input: {
   const temporaryRequestPath = `${requestPath}.${process.pid}.${input.requestId}.tmp`;
   await writeFile(
     temporaryRequestPath,
-    JSON.stringify({ requestId: input.requestId, ...(input.controllerDowntimeMs !== undefined ? { controllerDowntimeMs: input.controllerDowntimeMs } : {}),
+    JSON.stringify({ requestId: input.requestId, ...(input.controllerDowntimeMs !== undefined && !input.controllerOutage ? { controllerDowntimeMs: input.controllerDowntimeMs } : {}), discardControllerCache: input.discardControllerCache === true,
+      ...(input.controllerOutage ? { controllerOutage: input.controllerOutage } : {}),
+      ...(input.recoveryBinding ? { recoveryBinding: input.recoveryBinding } : {}),
       ...(input.preserveRunner ? { preserveRunner: input.preserveRunner } : {}),
       ...(input.crashAfterResult ? { crashAfterResult: input.crashAfterResult } : {}) }),
     { encoding: "utf8", mode: 0o600 },
   );
   await rename(temporaryRequestPath, requestPath);
 
-  await pollUntil({
+  const acknowledgement = await pollUntil({
     label: `isolated server restart ${input.requestId}`,
     timeoutFailureClass: "transient_infrastructure",
     deadlineAt: input.deadlineAt,
@@ -298,7 +305,9 @@ async function restartIsolatedPaperclipServer(input: {
     },
     accept: (acknowledgement) =>
       acknowledgement.requestId === input.requestId &&
-      acknowledgement.status === "ready",
+      acknowledgement.status === "ready" &&
+      (!input.discardControllerCache || acknowledgement.controllerCacheDiscarded === true) &&
+      (!input.controllerOutage || validControllerOutageReceipt(acknowledgement.controllerOutage, input.controllerOutage, input.requestId)),
     reject: (acknowledgement) =>
       acknowledgement.requestId === input.requestId &&
       acknowledgement.status === "failed"
@@ -313,6 +322,7 @@ async function restartIsolatedPaperclipServer(input: {
     load: () => input.api.get<Record<string, unknown>>("/api/health"),
     accept: (health) => Boolean(health),
   });
+  if (input.controllerOutage) await input.onControllerOutage?.(acknowledgement.controllerOutage as ControllerOutageReceipt);
 }
 
 const executionIds = (() => {
@@ -580,6 +590,7 @@ async function expectPlanStageVisible(
 }
 
 for (const execution of executions) {
+  const controllerOutage = controllerOutageForExecution(execution, process.env);
   const privateDir = path.join(privateRoot, "cases", execution.task.id);
   const resultPath = path.join(privateDir, "result.json");
   const snapshotsDir = path.join(privateDir, "snapshots");
@@ -1239,10 +1250,25 @@ for (const execution of executions) {
         });
         issue = continuation.issue as IssueRecord; selectedRuns = continuation.runs as RunRecord[];
       } else if (execution.task.flow === "everyday_workflow") {
+        const { readUpgradeArtifacts, upgradeArtifactKey } = await import("./upgrade-artifacts.js");
+        const upgradeManifest = controllerOutage ? await readUpgradeArtifacts(process.env[upgradeArtifactKey]) : null;
+        let restartIndex = 0;
         const story = await runEverydayFlow({
           page, api, fixtures, execution, nonce, workspacePath, privateDir,
           deadlineAt: startedAtMs + deadlineMs,
-          restart: controllerDowntimeMs => restartIsolatedPaperclipServer({ api, requestId: `story-${nonce}`, deadlineAt: startedAtMs + deadlineMs, controllerDowntimeMs }),
+          restartCount: upgradeManifest ? upgradeManifest.sequence.length - 1 : 1,
+          restart: async (recoveryBinding, controllerDowntimeMs) => {
+            let receipt: ControllerOutageReceipt | undefined;
+            restartIndex += 1;
+            await restartIsolatedPaperclipServer({ api, requestId: `story-${nonce}-${restartIndex}`, deadlineAt: startedAtMs + deadlineMs,
+              discardControllerCache: controllerOutage !== undefined, controllerOutage, controllerDowntimeMs,
+              ...(controllerOutage ? { recoveryBinding } : {}),
+              onControllerOutage: async value => {
+                receipt = value;
+                await writeSanitizedJson(snapshotsDir, `controller-outage-${restartIndex}.json`, value, secrets);
+              } });
+            return receipt;
+          },
           observe: (storyIssue, storyRuns) => { issue = storyIssue; selectedRuns = storyRuns; },
           capture: captureScreenshot,
           evidence: (name, data) => writeSanitizedJson(snapshotsDir, name, data, secrets),

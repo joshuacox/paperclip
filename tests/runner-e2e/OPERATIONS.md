@@ -670,10 +670,13 @@ preflight already exists. Review current official prices and context limits
 before updating `scheduled-prices.json`. `forecast.json` records the selected
 IDs, provenance-linked pilot measurements, compatibility gaps, uncertainty,
 reservations and price expiry. The historical daily/weekly successful model
-subtotals are $0.427624800/$0.791539400; they are not campaign bills. Setup model
+subtotals are $0.428650100/$0.793676500; they are not campaign bills. Setup model
 calls and attempt setup/teardown are included, while CI setup/build/queue and
 non-model charges are excluded. Current compatible totals stay unknown if any
-selected cell lacks a matching measurement. Hosted timing is still unmeasured.
+selected cell lacks a matching measurement. The historical hosted daily selection took 107.286 summed attempt seconds.
+The weekly Codex samples ran locally; a complete hosted weekly total remains
+unknown. Measurement hosts form separate cohorts. The original hosted workflow
+failed during report dependency setup after both worker cases passed.
 Per-cell medians describe only the retained samples; P95 requires at least 20
 matching samples and does not establish reliability. See
 [measurement provenance and limitations](OPERATIONS-COVERAGE.md#initial-cadence).
@@ -951,3 +954,19 @@ this eval project. Keep it limited to the trusted harness/provider runtime;
 never expose it to test prompts or unrelated clients. The project check is not
 an attempt-isolation guarantee. Indexing verification is a separate retained
 or scheduled check; the manual launcher alone does not perform it.
+
+### Hosted report dependencies
+
+The trusted report job applies a reviewed `report-lock.patch` before its frozen
+install. `report-lock.json` pins the input lock, patch and resulting lock hashes.
+This updates existing patch identities and the already declared yaml dependency
+without registry resolution. The worker target and its lock artifact never
+control report dependencies. An already-reviewed output lock is used unchanged. An unknown committed lock fails before install;
+update and review this correction when dependency inputs change. The original
+failed run remains failed when retained evidence gets a new presentation.
+
+The trusted authorization job checks this correction before catalog/build and
+paid work. Unknown dependency locks fail before model admission. Manual history
+publication applies the same correction before its frozen install. Qualification
+image builds apply it only when target and workflow revisions match; a different
+target keeps its own lock and does not require these reporting helper files.

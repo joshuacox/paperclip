@@ -74,19 +74,25 @@ function registerClient(key: string, client: RegisteredPostgresClient): void {
  * client that outlives the cluster it points at can crash the process (a
  * reserved connection's deferred write firing after the socket is gone).
  * Swallows individual `end()` errors so one bad client cannot block the rest.
+ * An owned database on a shared test host must select database scope instead;
+ * its teardown cannot close another fixture's clients on that host.
  */
-export async function closeRegisteredClients(url: string): Promise<void> {
+export async function closeRegisteredClients(url: string, options?: { scope: "database" }): Promise<void> {
   const key = hostPortKey(url);
+  const database = options?.scope === "database" ? decodeURIComponent(new URL(url).pathname.slice(1)) : undefined;
+  if (database === "") throw new Error("Database-scoped teardown requires an explicit database name");
   const refs = clientsByHostPort.get(key);
   if (!refs) return;
 
-  clientsByHostPort.delete(key);
   const clients: RegisteredPostgresClient[] = [];
   for (const ref of refs) {
-    clientFinalizer.unregister(ref);
     const client = ref.deref();
+    if (client && database !== undefined && client.options.database !== database) continue;
+    refs.delete(ref);
+    clientFinalizer.unregister(ref);
     if (client) clients.push(client);
   }
+  if (refs.size === 0) clientsByHostPort.delete(key);
 
   await Promise.all(clients.map((client) => client.end({ timeout: 1 }).catch(() => {})));
 }
@@ -288,6 +294,31 @@ export async function closeLivenessDb(db: Db, timeoutSeconds: number): Promise<v
   await livenessDbs.get(db)?.$client.end({ timeout: timeoutSeconds });
 }
 
+// Control checkpoints must not occupy the request or lease-renewal pools
+// during an aligned burst. Share at most two lazy connections per owner.
+const checkpointDbFactories = new WeakMap<object, () => Db>();
+const checkpointDbs = new WeakMap<object, Db>();
+const closedCheckpointOwners = new WeakSet<object>();
+
+/** The bounded controller checkpoint pool; transactions and test doubles keep
+ * their existing database when they have no owning client factory. */
+export function checkpointDb(db: Db): Db {
+  const existing = checkpointDbs.get(db);
+  if (existing) return existing;
+  const factory = checkpointDbFactories.get(db);
+  if (!factory) return db;
+  if (closedCheckpointOwners.has(db)) throw new Error("checkpoint_pool_closed");
+  const created = factory();
+  checkpointDbs.set(db, created);
+  return created;
+}
+
+/** Fence lazy creation immediately, and keep any ended pool cached. */
+export async function closeCheckpointDb(db: Db, timeoutSeconds: number): Promise<void> {
+  closedCheckpointOwners.add(db);
+  await checkpointDbs.get(db)?.$client.end({ timeout: timeoutSeconds });
+}
+
 export function createDb(url: string, options?: DatabaseClientOptions) {
   const resolved = resolveDatabaseClientOptions(options ?? databaseClientOptionsFromEnv());
   return createDbClient(url, resolved);
@@ -309,6 +340,9 @@ function createDbClient(url: string, resolved: DatabaseClientOptions, owner?: ob
   }, db));
   livenessDbFactories.set(db, () => createDbClient(url, {
     ...resolved, maxConnections: LIVENESS_POOL_MAX_CONNECTIONS, applicationName: "paperclip-controller-lease",
+  }, db));
+  checkpointDbFactories.set(db, () => createDbClient(url, {
+    ...resolved, maxConnections: 2, applicationName: "paperclip-runner-checkpoint",
   }, db));
   return db;
 }
@@ -509,6 +543,9 @@ const MIGRATIONS_WITH_TOP_LEVEL_STATEMENTS = new Set([
   "0388_ambitious_micromax.sql",
   "0389_brave_hulk.sql",
   "0390_salty_killraven.sql",
+  "0391_third_roulette.sql",
+  "0392_small_frightful_four.sql",
+  "0393_open_grandmaster.sql",
 
 
   "0384_funny_adam_warlock.sql",

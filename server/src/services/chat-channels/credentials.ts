@@ -1,3 +1,4 @@
+import { notifyChatCommandRegistration } from "./command-work-notifications.js";
 import { prepareSlackInventory } from "./slack/inventory.js";
 import { prepareGitHubInventory } from "./github/inventory.js";
 import { prepareDiscordInventory } from "./discord/inventory.js";
@@ -351,6 +352,7 @@ export function createChatCredentials(db: Db, options: ChatCredentialsOptions) {
             code: "chat_endpoint_credentials_changed",
           });
         }
+        await notifyChatCommandRegistration(tx, endpoint);
         await tx
           .delete(companySecretBindings)
           .where(
@@ -462,6 +464,7 @@ export function createChatCredentials(db: Db, options: ChatCredentialsOptions) {
         .then((rows) => rows[0] ?? null);
       if (!current) throw notFound("Chat connection not found");
       refs = current.refs;
+      await notifyChatCommandRegistration(tx, endpoint);
       await tx
         .delete(companySecretBindings)
         .where(

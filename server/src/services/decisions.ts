@@ -1,5 +1,6 @@
+import { decisionTargetService, notifyDecisionTargetWork } from "./decision-targets.js";
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { databaseWorkScopeKey, companyMemberships, decisionBundles, decisionEffectExecutions, decisionRetention, decisions, decisionTargetIssues, heartbeatRuns, issueRelations, issues } from "@paperclipai/db";
 import { ATTENTION_SOURCE_KINDS, decisionEffectTargetIssueIds } from "@paperclipai/shared";
@@ -15,7 +16,7 @@ import {
 import { decisionRetentionService, hashAttentionArchiveManifest } from "./decision-retention.js";
 
 import { decisionContinuationService, type DecisionContinuationWake } from "./decision-continuations.js";
-import { decisionEffectRecoveryService, decisionSweepBatchSize } from "./decision-effect-recovery.js";
+import { decisionEffectRecoveryService } from "./decision-effect-recovery.js";
 import { decisionExpiryService } from "./decision-expiry.js";
 import { notifyDecisionCreated, writeDecisionChange } from "./decision-work-notifications.js";
 
@@ -128,13 +129,13 @@ function boardCanActDirectly(actor: AuthorizationActor, companyId: string) {
 export function decisionService(db: Db, options: DecisionServiceOptions) {
   const continuations = decisionContinuationService(db, options.wakeOriginAgent);
   const expiry = decisionExpiryService(db, continuations.deliver);
+  const targets = decisionTargetService(db, expiry.expire);
   const effectRecovery = decisionEffectRecoveryService(db, recoverDecisionEffects);
   const scope = databaseWorkScopeKey(db);
   let flights = effectFlights.get(scope);
   if (!flights) effectFlights.set(scope, flights = new Map());
   const executing = flights;
   const authz = authorizationService(db);
-  let targetSweepCursor: string | null = null;
   type CreateInput = { companyId: string; actor: AuthorizationActor; agentId: string; runId: string; bundleId?: string | null;
     ruleKey?: string | null; title: string; body: string; options: DecisionOption[]; inputs?: DecisionInput[] | null; expiresAt?: Date | null;
     idempotencyKey?: string | null; continuationPolicy?: "none" | "wake_origin_agent"; metadata?: Record<string, unknown> };
@@ -239,6 +240,7 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
     };
     const id = randomUUID();
     await notifyDecisionCreated(dbOrTx);
+    await notifyDecisionTargetWork(dbOrTx, `decision:${id}`);
     const [created] = await dbOrTx.insert(decisions).values({ id, companyId: input.companyId, bundleId: input.bundleId ?? null,
       originAgentId: input.agentId, originIssueId: provenance.issueId, originRunId: input.runId, ruleKey: input.ruleKey ?? null,
       title: input.title, body: input.body, options: input.options, inputs: input.inputs ?? null, expiresAt,
@@ -760,40 +762,8 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
     return true;
   }
 
-  async function sweepExpired(now = new Date(), options: { includeContinuations?: boolean; includeExpiry?: boolean; includeEffects?: boolean } = {}) {
-    const batchSize = decisionSweepBatchSize();
-    const { resumed } = options.includeEffects === false ? { resumed: 0 } : await effectRecovery.sweep(now, batchSize);
-    if (options.includeContinuations !== false) await continuations.sweep(batchSize);
-    const ttlRows = options.includeExpiry === false ? [] : await expiry.due(now, batchSize);
-    const remaining = batchSize - ttlRows.length;
-    const targetRows = remaining > 0
-      ? await db.select().from(decisions)
-        .where(and(eq(decisions.status, "open"), ...(targetSweepCursor ? [gt(decisions.id, targetSweepCursor)] : [])))
-        .orderBy(asc(decisions.id)).limit(remaining)
-      : [];
-    targetSweepCursor = targetRows.length === remaining && targetRows.length > 0 ? targetRows[targetRows.length - 1]!.id : null;
-    const rows = [...new Map([...ttlRows, ...targetRows].map((row) => [row.id, row])).values()]; let expired = 0;
-    for (const decision of rows) { const strictTargetIds = new Set(decision.options.flatMap((option) => option.effects.filter((effect) => effect.staleness === "strict").flatMap(decisionEffectTargetIssueIds)));
-      const targets = strictTargetIds.size > 0
-        ? await db.select({ id: issues.id, status: issues.status }).from(issues).where(and(eq(issues.companyId, decision.companyId), inArray(issues.id, [...strictTargetIds])))
-        : [];
-      const targetGone = targets.length !== strictTargetIds.size || targets.some((target) => target.status === "cancelled");
-      // A decision whose strict targets all completed after it was proposed is moot:
-      // the strict guard would skip its effects anyway, so retire it instead of
-      // leaving it pending until TTL. Targets that were already done at proposal
-      // time don't count — those decisions intentionally act on a done issue.
-      const snapshots = decision.targetSnapshots as Record<string, Snapshot>;
-      const targetsCompleted = !targetGone && strictTargetIds.size > 0 &&
-        targets.every((target) => target.status === "done") &&
-        targets.some((target) => snapshots[target.id]?.status !== "done");
-      if (!targetGone && !targetsCompleted && (options.includeExpiry === false || decision.expiresAt > now)) continue;
-      const reason = targetGone ? "target_gone" : targetsCompleted ? "target_completed" : "ttl";
-      expired += await expiry.expire(decision, reason, now);
-    }
-    return { expired, resumed };
-  }
-
-  return { create, createBundle, get, list, stats, outcome, decide, cancel, dismiss, sweepExpired, sweepContinuations: continuations.sweep,
+  return { create, createBundle, get, list, stats, outcome, decide, cancel, dismiss, sweepContinuations: continuations.sweep,
     sweepTtlExpiry: expiry.sweep, nextExpiryAt: expiry.next,
-    recoverEffects: effectRecovery.sweep, nextEffectRecoveryAt: effectRecovery.next };
+    recoverEffects: effectRecovery.sweep, nextEffectRecoveryAt: effectRecovery.next,
+    sweepInvalidTargets: targets.sweep, decisionTargetsChanged: targets.changed, hasDecisionTargetWork: targets.hasPending };
 }

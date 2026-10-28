@@ -1,3 +1,4 @@
+import { chatConnectionTransport } from "./provider-catalog.js";
 import type { ConnectionManagementContext } from "../connection-management.js";
 import { slackSetupState } from "./slack/setup.js";
 import { assertChatExecutionDefaultsAccess } from "../chat-execution-defaults.js";
@@ -333,7 +334,7 @@ function providerSetupState(
         connectionKind: "managed",
         connectionPurpose: "channel",
         ownership: "customer",
-        transport: input.provider === "speko" ? "voice" : "chat_sdk",
+        transport: chatConnectionTransport(input.provider),
         authKind: "api_key",
         credentialPolicy: "shared",
         status: "draft",

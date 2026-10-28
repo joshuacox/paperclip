@@ -87,12 +87,18 @@ that relayed a message from another channel.
 
 ## Contextual feedback
 
-Keep the runner turn's avatar, name, Working header and current-activity slot
+Keep the runner turn's avatar, name, status header and current-activity slot
 in place from message submission through queued admission and native startup.
 Saving the human comment does not end startup feedback. Keep the identity mounted
 until its run appears or a newer execution outcome ends admission.
 Runtime discovery must not replace the turn with a generic spinner or a
 "run started" receipt. Queued and running headers use the same spacing.
+
+A queued turn shows `Queued`, or `Waiting for maintenance` while the server holds
+admission. Reserve `Working` and `Thinking` for execution. A saved message that
+starts this queued turn stays in history, including when it reopens an older
+task. This placement is not a consumption receipt. Later follow-ups remain in
+the composer queue with their existing edit, order and discard controls.
 
 Stream the provider's final reply as the conversational answer. Completion-tool
 reports remain inspectable run data while work continues. Use their summary as

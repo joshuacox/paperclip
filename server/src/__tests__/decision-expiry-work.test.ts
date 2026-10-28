@@ -62,8 +62,10 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
   async function start() {
     coordinator = createDeliveryWorkCoordinator({ owner: db, canRun: () => !draining,
       canReconcile: () => true, onError: error => errors.push(error) });
-    await registerDecisionContinuationWork(coordinator, service(), () => !draining).ready;
-    await registerDecisionExpiryWork(coordinator, service(), () => !draining).ready;
+    const continuation = service(), expiry = service();
+    await registerDecisionContinuationWork(coordinator, continuation, () => !draining).ready;
+    await registerDecisionExpiryWork(coordinator, expiry, () => !draining).ready;
+    return { continuation, expiry };
   }
   async function quiet() {
     await vi.waitFor(async () => {
@@ -218,12 +220,14 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
   });
 
   it("keeps a failed expiry retry through drain and preserves pending state", async () => {
-    const row = await create(new Date(Date.now() + 30_000)); await start();
+    const row = await create(new Date(Date.now() + 30_000)); const workers = await start();
+    const sweeps = [vi.spyOn(workers.expiry, "sweepTtlExpiry"), vi.spyOn(workers.continuation, "sweepContinuations")];
     await db.execute(sql`create function decision_expiry_fail() returns trigger language plpgsql as $$ begin
       if NEW.status = 'expired' then raise exception 'expiry unavailable'; end if; return NEW; end $$`);
     await db.execute(sql`create trigger decision_expiry_fail before update on decisions for each row execute function decision_expiry_fail()`);
     await vi.waitFor(async () => { await vi.advanceTimersByTimeAsync(30_000); expect(errors.length).toBeGreaterThan(0); });
     draining = true; expect((await service().get(row.id))?.status).toBe("open");
+    await Promise.allSettled(sweeps.flatMap(sweep => sweep.mock.results.filter(result => result.type === "return").map(result => result.value)));
     const reads = vi.spyOn(db, "select"); await vi.advanceTimersByTimeAsync(60_000);
     expect(reads).not.toHaveBeenCalled(); reads.mockRestore();
     await db.execute(sql`drop trigger decision_expiry_fail on decisions`);
@@ -247,12 +251,15 @@ const support = externalUrl ? { supported: true } : await getEmbeddedPostgresTes
     expect(wake).not.toHaveBeenCalled(); expect(await service().nextExpiryAt()).toBeNull();
   });
 
-  it("keeps TTL expiry out of the aggregate sweep when its worker owns the duty", async () => {
+  it("does not recover stale running effects during TTL expiry", async () => {
     const row = await create();
-    await db.update(decisions).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(decisions.id, row.id));
-    expect(await service().sweepExpired(new Date(), { includeContinuations: false, includeExpiry: false })).toEqual({ expired: 0, resumed: 0 });
-    expect((await service().get(row.id))?.status).toBe("open");
-    expect(await service().sweepTtlExpiry()).toEqual({ expired: 1 }); expect(wake).toHaveBeenCalledTimes(1);
+    await db.update(decisions).set({ status: "decided", executionStatus: "running", chosenOptionId: "yes",
+      decidedByUserId: null, updatedAt: new Date(Date.now() - 120_000), expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(decisions.id, row.id));
+    expect(await service().sweepTtlExpiry()).toEqual({ expired: 0 });
+    expect(await service().get(row.id)).toMatchObject({ status: "decided", executionStatus: "running" });
+    expect(wake).not.toHaveBeenCalled();
+    expect(await service().nextExpiryAt()).toBeNull();
   });
 
   it("pages past a failed candidate and retries it without repeating completed expirations", async () => {
