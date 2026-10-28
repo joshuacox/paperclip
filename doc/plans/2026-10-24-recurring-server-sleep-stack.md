@@ -17,7 +17,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Approval retention [#17497](https://github.com/paperclipai/paperclip/pull/17497) and archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged; other source retention pending |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) merged; targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) merged |
-| 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | #17554 repaired at `8c1d293d1a`; fresh CI/review in progress |
+| 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | [#17554](https://github.com/paperclipai/paperclip/pull/17554) merged after all checks and both 5/5 reviews |
 | 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Slices 02–07 merged: [secret proposals](https://github.com/paperclipai/paperclip/pull/17446), [credentials](https://github.com/paperclipai/paperclip/pull/17450), [review expiry](https://github.com/paperclipai/paperclip/pull/17453), [approved recovery](https://github.com/paperclipai/paperclip/pull/17454), [interrupted claims](https://github.com/paperclipai/paperclip/pull/17458), [projection](https://github.com/paperclipai/paperclip/pull/17468) |
 | 08 | GitHub connection events and continuity | Event discovery/replay and credential continuity separately | Pending |
 | 09 | Merged-PR confirmations | Candidate writes, webhook activation where supported, outstanding-candidate fallback | Pending |
@@ -1483,6 +1483,80 @@ loops or changing domain backoff. All 152 selected command/coordinator/health,
 producer/Slack, delivery/standby/startup cases and server types/build pass. Publish
 for fresh CI/review. The full inventory, #17490 CI failure, and stack/master
 reconciliation remain open; no merge authority is implied.
+
+
+## Slice 20 receiver implementation
+
+Receiver discovery now uses scoped committed configuration changes, startup
+reconstruction, foreign-lease deadlines, and listener-stop completion. Voice and
+all other maintenance reasons remain separate. See
+[the receiver audit](2026-10-25-chat-receiver-discovery-sleep-audit.md).
+A failed-scope deadline regression and a real concurrent listener-stop race were
+reproduced and repaired. All 218 selected receiver/startup, Discord, Photon,
+command/delivery and standby cases pass, with workspace typechecking passing.
+Workspace build also passes; publication and fresh remote gates remain open. This is not
+completion of the slice or the full stack. Master is refreshed at 0d73505098;
+final stack/master reconciliation remains required.
+
+Parent Discord #17557 at d3187f76a4 and company cleanup #17561 at e8febb30eb now
+have no failed or pending checks (Paperclip Review skipped). No merge was made.
+The older #17490 E2E cancellation failure remains unresolved. The entire original
+inventory stays in scope, with voice the next separate reason after receivers.
+
+
+Receiver discovery is published and attached as [#17572](https://github.com/paperclipai/paperclip/pull/17572)
+at 643f4766227e15006b684d2cc7bea7ddd5cc2147, based on #17557. Its live CI run is
+40173962833; security and reviews are pending. All 218 selected local cases,
+workspace types and build pass. The next audit splits voice into five separate
+reasons: live-session recovery, reply push, inbound admission expiry/provider
+cleanup, inbound history retention, and call reports. See
+[the voice owner audit](2026-10-25-voice-maintenance-sleep-audit.md).
+Branch codex/sleep-21-voice-session-recovery starts with the first reason; the
+other four remain explicit required slices. No voice migration is implemented yet.
+## Receiver review repair
+
+The real company-removal producer regression reproduced two inventory reads for
+one observed removal. Discovery-initiated stops now suppress their own completion
+wake; independent token loss still wakes discovery after listener retirement.
+A full reconstruction also covers its already-pending scoped hints. Hints that
+arrive during the load remain dirty, and narrower writes cannot bypass a failed
+full reconstruction's retry deadline.
+
+Both redundant-load regressions failed before repair. All 45 selected receiver,
+startup and real Discord producer tests pass after repair, including the added
+full-refresh failure/backoff case. Server typecheck and build pass. Prior broad
+consumer/workspace verification remains recorded above; these 45 overlap that
+coverage and are not an additional unique total. Publication requires fresh
+remote CI and review. The full migration inventory remains outstanding.
+
+
+Voice recovery checkpoint: receiver repair `1604a9fcba` is published to #17572
+and incorporated into the unpublished voice child. The complete 93-case voice
+suite, eight new recovery lifecycle tests, and 16 startup wiring cases pass.
+See the voice audit for precise coverage and remaining work. Receiver CI
+40175242445 is live with no failures at inspection; no final acceptance or merge
+is claimed. All remaining reasons, older #17490 failure, and final master
+reconciliation stay in scope.
+
+
+Live voice recovery is [#17576](https://github.com/paperclipai/paperclip/pull/17576),
+head 8f5e861dbd, based on #17572. All 837 selected tests, workspace typecheck and
+build pass; remote checks and review remain required. The full local test command
+was stopped after repeated embedded PostgreSQL setup failures, not counted as a
+pass. Slice 22 owns voice reply delivery and begins with the multipart/outcome
+policy and publication-settlement producer audit. See
+[reply delivery audit](2026-10-25-voice-reply-delivery-sleep-audit.md).
+
+Slice 22 now implements voice reply delivery from committed changes and saved
+retry/dispatch deadlines. The periodic reply scan and pre-publication direct push
+are removed. Real normal/operator publication tests prove the final-commit wake;
+turning that notification off reproduces zero delivered replies. The branch has
+786 selected passing tests across isolated voice, recovery, startup, and shared
+consumers, plus workspace typecheck/build. See the reply audit for retained
+fixture failures and local full-suite infrastructure limitations. Publication and
+latest-head review/check acceptance remain outstanding. Inbound admission cleanup,
+inbound history retention, and call reports remain separate next slices.
+
 ## Acceptance follow-up after the plugin parent merged (October 27)
 
 Eighteen preceding sleep PRs are merged through plugin scheduling #17518 at
@@ -1498,6 +1572,29 @@ status and test counts above are historical. The original remaining inventory
 is still in scope beyond the 65 published numbered slices; native backups and
 the remaining aggregate duties have not been migrated by this follow-up.
 
+## Receiver follow-up with current Discord parent, October 27
+
+Nineteen sleep PRs are merged through health #17554. Receiver discovery #17572
+now includes current Discord parent `cedf2030c4`, retaining the original 27-file
+scope. Its existing slow-failure and stop-wake repairs have guarded mutation
+proofs, 131 targeted cases pass, and both newly supported external fixtures
+self-migrate. See [the owning audit](2026-10-25-chat-receiver-discovery-sleep-audit.md#current-parent-and-review-acceptance-october-27)
+for exact evidence and the older CI runner-loss failure. Fresh CI/reviews and
+parent landing are still required. The original remaining-duty inventory is unchanged.
+
+
+## Voice inventory amplification acceptance, October 27
+
+The voice recovery slice keeps the original single-duty scope and adds the
+normalized health-observation notification contract. Five real metadata writes
+and one health check over 205 future calls previously selected 1,230 call rows;
+they now select zero and preserve the saved deadline. Startup and changed-parent
+reconstruction use bounded pages and retain concurrent wakes.
+
+The updated [voice audit](2026-10-25-voice-maintenance-sleep-audit.md#voice-session-inventory-amplification-repair-october-27)
+records all 725 distinct targeted passing cases, typecheck, build, failed attempts
+and guarded regressions. This is worker acceptance, not deployed sleep proof.
+Fresh exact-head review and CI remain required before the voice PR can merge.
 
 ## Discord registration landing compatibility, October 27
 
@@ -1505,3 +1602,59 @@ Company deletion has landed. The Discord command slice retains only its original
 26-file delta against the landed parent and current master at `f8563d2507`. All
 141 targeted cases, server typecheck and build pass. The [owning audit](2026-10-25-discord-command-registration-sleep-audit.md#acceptance-after-the-company-deletion-parent-landed-october-27)
 records exact scope, fixture setup and remaining remote gates.
+
+
+## Receiver integration with landed foundations, October 27
+
+Receiver discovery keeps its 27-file scope on Discord parent `547fdf2139` and
+preserves current master queue declarations. All 131 targeted cases, server
+typecheck and build pass. See the [receiver audit](2026-10-25-chat-receiver-discovery-sleep-audit.md#landed-foundation-integration-acceptance-october-27).
+Fresh exact-head review, CI and parent landing remain required.
+
+
+## Voice integration with landed foundations, October 27
+
+The bounded voice repair now includes receiver `6e88ca0201` and retains its
+22-file scope. All 725 targeted cases, production typecheck and server build pass
+again. The [voice audit](2026-10-25-voice-maintenance-sleep-audit.md#landed-foundation-acceptance-october-27)
+records exact scope, database setup, the initial partial tool-access run and
+remaining remote gates.
+
+
+## Reply delivery preserves bounded parent reconstruction, October 27
+
+The reply child includes voice recovery `712f3862b5`. Its existing shared-worker
+extraction now supports the parent's paged result contract. The real inherited
+205-call regression fails before repair and passes afterward; all 445 distinct
+targeted cases, production typecheck and server build pass. The [reply audit](2026-10-25-voice-reply-delivery-sleep-audit.md#current-parent-paging-contract-acceptance-october-27)
+records the 31-file scope and effects on the four existing shared consumers.
+Current-head review, CI and parent landing remain required.
+
+## Voice trusted-policy checkout repair, October 27
+
+Receiver `ab39569250` supplies the landed policy checker now required by trusted
+CI. Voice server/package code and tests remain identical to the 725-case tested
+head. The policy checker and its Node tests pass. The [voice audit](2026-10-25-voice-maintenance-sleep-audit.md#trusted-policy-checkout-compatibility-october-27)
+keeps the four old failed gates, including the independent runner shutdown,
+separate from current local evidence. Fresh review and CI remain required.
+
+
+## Voice review follow-up, October 28
+
+Voice recovery isolates a failed broad inventory retry from ready exact hints
+and cached due calls, while retaining on-use authority checks and exact-scope
+fences. The generation test uses controlled scheduler turns instead of elapsed
+SQL time. All 210 current targeted cases, production typecheck and server build
+pass; guarded mutations catch both regressions. The [voice audit](2026-10-25-voice-maintenance-sleep-audit.md#wildcard-failure-and-deterministic-generation-acceptance-october-28)
+keeps the actual CI assertion failure and earlier failed attempts separate.
+
+
+## Reply publication inventory acceptance, October 28
+
+Reply delivery now scopes final publication wakes to the actual conversation and
+returns at most 100 identity rows per refresh. Five real publications previously
+selected 1,065/1,060 rows across unrelated calls; both paths pass the same 125-row
+budget after repair. The [reply audit](2026-10-25-voice-reply-delivery-sleep-audit.md#publication-inventory-and-paging-acceptance-october-28)
+records restart, denial-cursor and guarded-mutation coverage. All 449 current
+targeted cases, server typecheck/build and the policy check pass on parent
+`ad79c7e805`. Fresh exact-head review, CI and parent landing remain required.

@@ -1,4 +1,4 @@
-import { notifyChatCommandRegistration } from "../command-work-notifications.js";
+import { notifyChatEndpointConfiguration } from "../configuration-work-notifications.js";
 import { notifyChatConnectionHealth } from "../connection-health-notifications.js";
 import { isOutboundAttachmentHydrationError, isOutboundAttachmentValidationError } from "../outbound-attachments.js";
 
@@ -190,7 +190,7 @@ export function createChatPublicationFailures(db: Db, options: PublicationFailur
           : null;
 
       if (disposition.kind === "endpoint_attention" && currentEndpoint) {
-        await notifyChatCommandRegistration(tx, currentEndpoint);
+        await notifyChatEndpointConfiguration(tx, currentEndpoint);
         await tx
           .update(chatEndpoints)
           .set({

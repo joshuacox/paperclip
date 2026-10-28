@@ -1,3 +1,4 @@
+import { notifyVoiceChange } from "../../voice/voice-recovery-notifications.js";
 import { notifyChatEndpointWork } from "../../chat-work-notifications.js";
 import { notifyToolConnectionHealth } from "../../tool-connection-health-notifications.js";
 import { toConnection } from "./projection.js";
@@ -541,6 +542,7 @@ async function removeConnection(
 
     const archived = await db.transaction(async (tx) => {
       if (connection.transport === "chat_sdk") await notifyChatEndpointWork(tx, connection.id);
+          if (connection.transport === "voice") await notifyVoiceChange(tx, { kind: "connection", id: connection.id });
       await notifyToolConnectionHealth(tx, connection);
       await tx.select({ id: toolApplications.id }).from(toolApplications)
         .where(and(eq(toolApplications.id, connection.applicationId), eq(toolApplications.companyId, connection.companyId)))

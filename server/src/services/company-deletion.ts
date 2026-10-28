@@ -1,4 +1,4 @@
-import { notifyChatCompanyCommandRegistration } from "./chat-channels/command-work-notifications.js";
+import { notifyChatCompanyConfiguration } from "./chat-channels/configuration-work-notifications.js";
 import { chatCompanyDeletion } from "./chat-channels/company-deletion.js";
 import { notifyToolConnectionHealth } from "./tool-connection-health-notifications.js";
 import { notifyCompanyRetentionWork } from "./retention-work-notifications.js";
@@ -65,7 +65,7 @@ export async function deleteCompany(db: Db, id: string) {
         const [existing] = await tx.select({ id: companies.id }).from(companies)
           .where(eq(companies.id, id)).for("no key update");
         if (!existing) return null;
-        await notifyChatCompanyCommandRegistration(tx, id);
+        await notifyChatCompanyConfiguration(tx, id);
         await chatCompanyDeletion.deleteCompanyData(tx, id);
         await notifyDeliveryWork(tx, DELIVERY_QUEUES.skillSourceSync);
         await notifyDeliveryWork(tx, DELIVERY_QUEUES.secretProposalExpiry, id);

@@ -1,4 +1,4 @@
-import { notifyChatCommandRegistration } from "../command-work-notifications.js";
+import { notifyChatEndpointConfiguration } from "../configuration-work-notifications.js";
 import { notifyChatConnectionHealth } from "../connection-health-notifications.js";
 import { slackQuestionFormValidationError } from "../slack/question-forms.js";
 import { chatInteractionForm, chatItemVerdicts } from "../../chat-interaction-forms.js";
@@ -418,7 +418,7 @@ export function createChatInteractionCallbacks(db: Db, options: InteractionCallb
             ["active"],
           );
           if (currentEndpoint) {
-            await notifyChatCommandRegistration(tx, currentEndpoint);
+            await notifyChatEndpointConfiguration(tx, currentEndpoint);
             await tx
               .update(chatEndpoints)
               .set({

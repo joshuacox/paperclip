@@ -1,3 +1,4 @@
+import { notifyVoiceChange } from "./voice/voice-recovery-notifications.js";
 import { notifyToolConnectionHealth, writeToolConnectionHealthChange } from "./tool-connection-health-notifications.js";
 import { connectionHealthSchedule } from "./tool-access/catalog/health-schedule.js";
 import type { ConnectionManagementContext } from "./connection-management.js";
@@ -4672,6 +4673,7 @@ export function toolAccessService(
             return rows;
           })
         : await writeToolConnectionHealthChange(db, existing, async tx => {
+            if (existing.transport === "voice") await notifyVoiceChange(tx, { kind: "connection", id: existing.id });
             const rows = await write(tx);
             await syncCredentialBindings(rows[0]!, [], tx);
             await createToolRuntimeSlots(tx, runtimeSupervisor).ensureRuntimeSlot(rows[0]!);

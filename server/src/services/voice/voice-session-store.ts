@@ -1,3 +1,5 @@
+import { notifyVoiceReplies } from "./voice-reply-notifications.js";
+import { notifyVoiceChange } from "./voice-recovery-notifications.js";
 import { notifyChatDeliveryWork } from "../chat-work-notifications.js";
 import { environmentService } from "../environments.js";
 import { logger } from "../../middleware/logger.js";
@@ -192,13 +194,16 @@ export function voiceSessionStore(db: Db, options: { allowLocalBoard: boolean; n
           if (!["connecting", "active"].includes(guest.state) || guest.expiresAt.getTime() <= Date.now() || guest.generation !== context.generation || guest.toolTokenHash !== voiceTokenHash(input.toolToken ?? "")) throw forbidden("Guest call is no longer available for approval");
           const task = await authorizeTask(tx, input.companyId, binding.issueId, input.caller);
           if (task.assigneeAgentId !== context.endpoint.assignedAgentId) throw conflict("The selected agent must be assigned to this task");
+          await notifyVoiceChange(tx, { kind: "session", id: guest.id });
           const [promoted] = await tx.update(chatVoiceSessions).set({...binding, callerId: input.caller.id, callerAuthority: input.caller.authority, approvedByUserId: input.caller.id, idempotencyKey: input.idempotencyKey, requestFingerprint: input.requestFingerprint, updatedAt: new Date()}).where(eq(chatVoiceSessions.id, guest.id)).returning();
           await tx.insert(activityLog).values({companyId: input.companyId, actorType: "user", actorId: input.caller.id, action: "voice.guest.private_call_approved", entityType: "voice_session", entityId: guest.id, details: {issueId: binding.issueId}});
           return {session: promoted, created: false as const};
         }
       }
       const token = input.toolToken ?? randomBytes(32).toString("base64url"), createdAt = new Date();
-      const [session] = await tx.insert(chatVoiceSessions).values({ id: randomUUID(), companyId: input.companyId, endpointId: input.endpointId, ...binding, assignedAgentId: context.endpoint.assignedAgentId,
+      const sessionId = randomUUID();
+      await notifyVoiceChange(tx, { kind: "session", id: sessionId });
+      const [session] = await tx.insert(chatVoiceSessions).values({ id: sessionId, companyId: input.companyId, endpointId: input.endpointId, ...binding, assignedAgentId: context.endpoint.assignedAgentId,
         callerId: input.caller.id, callerAuthority: input.caller.authority, mode: input.mode ?? "browser", state: input.providerSessionId ? "connecting" : "reserved", providerSessionId: input.providerSessionId ?? null, approvedByUserId: input.mode === "inbound_phone" ? input.caller.id : null, generation: context.generation, credentialFingerprint: context.fingerprint,
         toolTokenHash: voiceTokenHash(token), idempotencyKey: input.idempotencyKey, requestFingerprint: input.requestFingerprint, createdAt, expiresAt: new Date(createdAt.getTime() + input.maxDurationSeconds * 1000) }).returning();
       await tx.insert(activityLog).values({ companyId: input.companyId, actorType: "user", actorId: input.caller.id, action: "voice.session.requested", entityType: "voice_session", entityId: session.id, details: { endpointId: input.endpointId, issueId: session.issueId, mode: input.mode ?? "browser" } });
@@ -265,10 +270,12 @@ export function voiceSessionStore(db: Db, options: { allowLocalBoard: boolean; n
       sql`not (${priorCallDeliveryBarrier(session, sql`${chatPublications.id}`)})`,
     )).orderBy(asc(chatPublications.createdAt), asc(chatPublications.id)).limit(100);
     let cursor = session.replyCursor;
+    if (missing.length) await notifyVoiceReplies(tx, { kind: "session", id: session.id });
     for (const publication of missing) {
       await tx.insert(chatVoiceReplies).values({ companyId: session.companyId, sessionId: session.id, publicationId: publication.id, cursor: ++cursor });
     }
     if (cursor !== session.replyCursor) {
+      await notifyVoiceChange(tx, { kind: "session", id: session.id });
       await tx.update(chatVoiceSessions).set({ replyCursor: cursor, updatedAt: new Date() }).where(eq(chatVoiceSessions.id, session.id));
       session.replyCursor = cursor;
     }
@@ -289,7 +296,9 @@ export function voiceSessionStore(db: Db, options: { allowLocalBoard: boolean; n
     const [existing] = await tx.select().from(chatVoiceReplies).where(and(eq(chatVoiceReplies.sessionId, session.id), eq(chatVoiceReplies.publicationId, previous.publicationId)));
     if (existing) return;
     const cursor = session.replyCursor + 1;
+    await notifyVoiceReplies(tx, { kind: "session", id: session.id });
     await tx.insert(chatVoiceReplies).values({ companyId: session.companyId, sessionId: session.id, publicationId: previous.publicationId, cursor, deliveredAt: new Date() });
+    await notifyVoiceChange(tx, { kind: "session", id: session.id });
     await tx.update(chatVoiceSessions).set({ replyCursor: cursor, updatedAt: new Date() }).where(eq(chatVoiceSessions.id, session.id));
     session.replyCursor = cursor;
   }
@@ -327,6 +336,7 @@ export function voiceSessionStore(db: Db, options: { allowLocalBoard: boolean; n
       const context = await authorizeSession(tx, input.companyId, input.sessionId), { session } = context;
       if (session.endpointId !== input.endpointId || session.providerSessionId !== input.envelope.session_id || !timingSafeEqual(Buffer.from(session.toolTokenHash, "hex"), Buffer.from(voiceTokenHash(input.token), "hex"))) throw forbidden("Voice tool scope does not match this session");
       if (session.state === "connecting") {
+        await notifyVoiceChange(tx, { kind: "session", id: session.id });
         await tx.update(chatVoiceSessions).set({ state: "active", updatedAt: new Date() }).where(eq(chatVoiceSessions.id, session.id));
         await tx.insert(activityLog).values({ companyId: session.companyId, actorType: "system", actorId: "voice-session-service", action: "voice.session.connected", entityType: "voice_session", entityId: session.id, details: { endpointId: session.endpointId, issueId: session.issueId } });
       }
@@ -394,7 +404,10 @@ export function voiceSessionStore(db: Db, options: { allowLocalBoard: boolean; n
         // cannot displace the clarification the caller must respond to.
         const boundary = available.findIndex(({ payload }) => typeof payload.interactionId === "string");
         if (boundary >= 0) available.splice(boundary + 1);
-        if (available.length && !repeat) await tx.update(chatVoiceReplies).set({ deliveredAt: new Date() }).where(and(inArray(chatVoiceReplies.id, available.map((row) => row.reply.id)), isNull(chatVoiceReplies.deliveredAt)));
+        if (available.length && !repeat) {
+          await notifyVoiceReplies(tx, { kind: "session", id: session.id });
+          await tx.update(chatVoiceReplies).set({ deliveredAt: new Date() }).where(and(inArray(chatVoiceReplies.id, available.map((row) => row.reply.id)), isNull(chatVoiceReplies.deliveredAt)));
+        }
         const updates = [];
         for (const { reply, payload } of available) {
           let question: Record<string, unknown> | undefined;
@@ -462,7 +475,9 @@ export function voiceSessionStore(db: Db, options: { allowLocalBoard: boolean; n
             .from(chatPublications).where(eq(chatPublications.id, publication.id)).limit(1);
           if (priorCall?.blocked) return;
           const cursor = session.replyCursor + 1;
+          await notifyVoiceReplies(tx, { kind: "session", id: session.id });
           await tx.insert(chatVoiceReplies).values({ companyId, sessionId: session.id, publicationId: publication.id, cursor });
+          await notifyVoiceChange(tx, { kind: "session", id: session.id });
           await tx.update(chatVoiceSessions).set({ replyCursor: cursor, updatedAt: new Date() }).where(eq(chatVoiceSessions.id, session.id));
           return {sessionId: session.id, providerSessionId: session.providerSessionId, replyCursor: cursor, mode: session.mode};
         }).then(queued => {

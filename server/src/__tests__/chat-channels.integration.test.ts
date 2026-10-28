@@ -1,3 +1,4 @@
+import { notifyChatEndpointConfiguration, notifyChatCompanyConfiguration } from "../services/chat-channels/configuration-work-notifications.js";
 import { deleteCompany } from "../services/company-deletion.js";
 import { adapterExecutionControls, createAdapterExecutionControl } from "../services/adapter-execution-control.js";
 import { chatRunSourceMessageId } from "../services/chat-channels/run-origin.js";
@@ -7133,6 +7134,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
 
     async function registrationFixture(
       mode: "success" | "unavailable" | "unknown" = "success",
+      receiverOptions: Partial<Pick<ChatChannelServiceOptions, "discordGatewayLeaseTtlMs" | "discordGatewayLeaseRenewalIntervalMs">> = {},
     ) {
       const fixture = await seedCompany();
       const applicationId = uniqueDiscordApplicationId();
@@ -7190,7 +7192,7 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
           return Response.json(command);
         },
       ) as unknown as typeof globalThis.fetch;
-      const context = createService(new FakeChatSdkRuntime(), providerFetch);
+      const context = createService(new FakeChatSdkRuntime(), providerFetch, receiverOptions);
       const endpoint = await context.service.create(
         fixture.companyId,
         {
@@ -7242,6 +7244,125 @@ describeEmbeddedPostgres("chat channel control-plane integration", () => {
         },
       };
     }
+
+    it("drives receiver discovery through real configure, rotation, pause, and resume producers", async () => {
+      const f = await registrationFixture("success", { discordGatewayLeaseTtlMs: 600_000, discordGatewayLeaseRenewalIntervalMs: 300_000 });
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"], shouldAdvanceTime: true });
+      const onError = vi.fn();
+      const coordinator = createDeliveryWorkCoordinator({ owner: db, canRun: () => true, onError });
+      const settle = async () => vi.waitFor(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(idleWorkSnapshot().active).toBe(0);
+        expect(coordinator.nextWakeAt()).toBeNull();
+      }, { timeout: 5000 });
+      const quiet = async () => {
+        const reads = vi.spyOn(db, "select"), writes = vi.spyOn(db, "transaction");
+        try {
+          await vi.advanceTimersByTimeAsync(20_000);
+          expect(reads).not.toHaveBeenCalled(); expect(writes).not.toHaveBeenCalled();
+        } finally { reads.mockRestore(); writes.mockRestore(); }
+      };
+      try {
+        await f.service.registerReceiverWork(coordinator, () => true).ready;
+        await settle(); await quiet();
+        await f.configure(); await settle();
+        const first = f.runtime.get(f.endpoint.id); expect(first).not.toBeNull();
+        await quiet();
+        await f.service.configure(f.endpoint.id, { action: "reconnect", credentials: { ...f.credentials, botToken: "rotated-receiver-token" } }, "owner-user");
+        await settle(); expect(f.runtime.get(f.endpoint.id)).not.toBe(first); expect(first!.shutdown).toHaveBeenCalledOnce();
+        // Pause requires completed onboarding; configure/reconnect intentionally
+        // leave this fixture waiting for its first test conversation.
+        const configured = await f.service.get(f.endpoint.id);
+        await db.update(chatEndpoints).set({ status: "active", setup: { ...configured.setup, step: "complete" } })
+          .where(eq(chatEndpoints.id, f.endpoint.id));
+        await f.service.configure(f.endpoint.id, { action: "pause" }, "owner-user");
+        await settle(); expect(f.runtime.get(f.endpoint.id)).toBeNull(); await quiet();
+        await f.service.configure(f.endpoint.id, { action: "resume" }, "owner-user");
+        await settle(); expect(f.runtime.get(f.endpoint.id)).not.toBeNull(); await quiet();
+        await f.service.configure(f.endpoint.id, { action: "remove" }, "owner-user");
+        await settle(); expect(f.runtime.get(f.endpoint.id)).toBeNull(); await quiet();
+        expect(onError).not.toHaveBeenCalled();
+      } finally {
+        await coordinator.stop(); await f.service.shutdown(); vi.useRealTimers();
+        await retireRegistrationFixture(f.service, f.endpoint.id);
+      }
+    });
+
+    it("does not rediscover a receiver stopped by a company removal refresh", async () => {
+      const f = await registrationFixture("success", { discordGatewayLeaseTtlMs: 600_000, discordGatewayLeaseRenewalIntervalMs: 300_000 });
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"], shouldAdvanceTime: true });
+      const onError = vi.fn(), coordinator = createDeliveryWorkCoordinator({ owner: db, canRun: () => true, onError });
+      let reads: ReturnType<typeof vi.spyOn> | undefined;
+      try {
+        await f.configure(); await f.service.registerReceiverWork(coordinator, () => true).ready;
+        await vi.waitFor(async () => { await vi.advanceTimersByTimeAsync(1000); expect(idleWorkSnapshot().active).toBe(0); expect(coordinator.nextWakeAt()).toBeNull(); });
+        const owned = f.runtime.get(f.endpoint.id)!;
+        reads = vi.spyOn(db, "select");
+        await db.transaction(async tx => {
+          await notifyChatCompanyConfiguration(tx, f.fixture.companyId);
+          await tx.delete(chatEndpoints).where(eq(chatEndpoints.id, f.endpoint.id));
+        });
+        await vi.waitFor(async () => { await vi.advanceTimersByTimeAsync(1000); expect(idleWorkSnapshot().active).toBe(0); expect(coordinator.nextWakeAt()).toBeNull(); });
+        expect(owned.shutdown).toHaveBeenCalledOnce();
+        expect(reads).toHaveBeenCalledOnce(); expect(onError).not.toHaveBeenCalled();
+      } finally {
+        reads?.mockRestore(); await coordinator.stop(); vi.useRealTimers(); await f.service.shutdown();
+        await db.update(chatEndpoints).set({ status: "archived" }).where(eq(chatEndpoints.id, f.endpoint.id));
+      }
+    });
+
+    it("takes over a persisted foreign receiver lease at its deadline through the worker", async () => {
+      const f = await registrationFixture();
+      await f.configure(); await f.service.shutdown();
+      const token = randomUUID(), expiresAt = new Date(Date.now() + 500);
+      await db.insert(chatEndpointLeases).values({ companyId: f.fixture.companyId, endpointId: f.endpoint.id,
+        leaseKey: "discord_gateway_runtime", token, expiresAt });
+      const standby = createService(new FakeChatSdkRuntime(), f.providerFetch);
+      const onError = vi.fn();
+      const coordinator = createDeliveryWorkCoordinator({ owner: db, canRun: () => true, onError });
+      try {
+        await standby.service.registerReceiverWork(coordinator, () => true).ready;
+        expect(standby.runtime.get(f.endpoint.id)).toBeNull();
+        expect(coordinator.nextWakeAt()).toBeGreaterThanOrEqual(expiresAt.getTime());
+        await vi.waitFor(() => expect(standby.runtime.get(f.endpoint.id)).not.toBeNull(), { timeout: 5000 });
+        const [lease] = await db.select().from(chatEndpointLeases).where(eq(chatEndpointLeases.endpointId, f.endpoint.id));
+        expect(lease.token).not.toBe(token);
+        expect(lease.expiresAt.getTime()).toBeGreaterThan(expiresAt.getTime());
+        expect(onError).not.toHaveBeenCalled();
+      } finally {
+        await coordinator.stop(); await retireRegistrationFixture(standby.service, f.endpoint.id);
+      }
+    });
+
+    it("restarts a receiver after token loss only after the old listener has stopped", async () => {
+      const f = await registrationFixture("success", { discordGatewayLeaseTtlMs: 60_000, discordGatewayLeaseRenewalIntervalMs: 50 });
+      const onError = vi.fn();
+      const coordinator = createDeliveryWorkCoordinator({ owner: db, canRun: () => true, onError });
+      let release!: () => void;
+      const stopped = new Promise<void>(resolve => { release = resolve; });
+      try {
+        await f.configure();
+        await f.service.registerReceiverWork(coordinator, () => true).ready;
+        const old = f.runtime.get(f.endpoint.id)!;
+        old.shutdown.mockImplementation(async () => { await stopped; });
+        await db.delete(chatEndpointLeases).where(eq(chatEndpointLeases.endpointId, f.endpoint.id));
+        await vi.waitFor(() => expect(old.shutdown).toHaveBeenCalledOnce());
+        await db.transaction(tx => notifyChatEndpointConfiguration(tx, f.endpoint));
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        expect(f.runtime.get(f.endpoint.id)).toBeNull();
+        release();
+        await vi.waitFor(async () => {
+          expect(f.runtime.get(f.endpoint.id)).not.toBeNull();
+          expect(f.runtime.get(f.endpoint.id)).not.toBe(old);
+          expect(idleWorkSnapshot().active).toBe(0);
+          expect(coordinator.nextWakeAt()).toBeNull();
+        });
+        expect(onError).not.toHaveBeenCalled();
+      } finally {
+        release(); await coordinator.stop(); vi.useRealTimers();
+        await retireRegistrationFixture(f.service, f.endpoint.id);
+      }
+    });
 
     it("learns the first configured command and cancels its deadline when the endpoint is removed", async () => {
       const f = await registrationFixture();

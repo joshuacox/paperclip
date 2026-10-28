@@ -1,5 +1,5 @@
 {
-  "id": "7e487b1f-9906-4ddf-945f-4d12e529b8f3",
+  "id": "66fe02b3-6672-4c19-b447-57acad43bf16",
   "prevId": "633afb6b-4b89-44ea-81d5-a477a3696eb5",
   "version": "7",
   "dialect": "postgresql",
@@ -1347,6 +1347,34 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "activity_log_company_user_issue_actor_idx": {
+          "name": "activity_log_company_user_issue_actor_idx",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "actor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"activity_log\".\"actor_type\" = 'user' AND \"activity_log\".\"entity_type\" = 'issue'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -4436,7 +4464,7 @@
       "checkConstraints": {
         "ai_connection_defaults_provider_check": {
           "name": "ai_connection_defaults_provider_check",
-          "value": "\"ai_connection_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google','github','antigravity')"
+          "value": "\"ai_connection_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google','github')"
         },
         "ai_connection_defaults_method_check": {
           "name": "ai_connection_defaults_method_check",
@@ -4909,7 +4937,7 @@
       "checkConstraints": {
         "ai_provider_defaults_provider_check": {
           "name": "ai_provider_defaults_provider_check",
-          "value": "\"ai_provider_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google','github','antigravity')"
+          "value": "\"ai_provider_defaults\".\"provider\" in ('anthropic','openai','openrouter','xai','google','github')"
         }
       },
       "isRLSEnabled": false
