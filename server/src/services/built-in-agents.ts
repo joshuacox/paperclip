@@ -745,7 +745,15 @@ function defaultAdapterConfigFor(definition: BuiltInAgentDefinition, adapterType
       dangerouslySkipPermissions: false,
     };
   }
-  return definition.defaultAdapterConfig ?? {};
+  const defaults = definition.defaultAdapterConfig ?? {};
+  if (adapterType === defaultAdapterType(definition)) return defaults;
+  // The definition's model default belongs to its default adapter. When a
+  // caller provisions a different adapter with an empty config, carrying that
+  // model over makes the model check reject the request against the foreign
+  // adapter's catalog; dropping it keeps the agent provisioned but needing
+  // setup, which the caller can finish later.
+  const { model: _ignored, ...rest } = defaults;
+  return rest;
 }
 
 function definitionPatch(definition: BuiltInAgentDefinition, input: BuiltInAgentProvisionInput = {}) {

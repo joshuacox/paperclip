@@ -335,6 +335,17 @@ describeEmbeddedPostgres("built-in agents", () => {
     expect(edited.agent).toMatchObject({ adapterType: "paperclip_runner", adapterConfig: { provider: "codex", model: "gpt-5.4" } });
   });
 
+  it("provisions a non-default adapter with an empty config without inheriting the default adapter model", async () => {
+    const companyId = await seedCompany({ requireApproval: false });
+    const svc = builtInAgentService(db);
+    const created = await svc.ensure(companyId, "summarizer", { adapterType: "codex_local", adapterConfig: {} });
+    expect(created.agent?.adapterType).toBe("codex_local");
+    const rows = await db.select().from(agents).where(eq(agents.companyId, companyId));
+    expect(rows).toHaveLength(1);
+    expect((rows[0]!.adapterConfig as Record<string, unknown>).model).toBeUndefined();
+    expect(rows[0]!.metadata).toMatchObject({ paperclipBuiltInSetupRequired: true });
+  });
+
   it("freezes Codex built-in execution in the reviewed hire through service restart", async () => {
     const companyId = await seedCompany({ requireApproval: true });
     const result = await builtInAgentService(db).provision(companyId, "briefs", { adapterType: "codex_local", adapterConfig: { model: "gpt-5.4" } }, { requestedByUserId: "board-user" });
